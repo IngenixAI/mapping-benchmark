@@ -1,0 +1,455 @@
+"""Three-axis benchmark for mapping patient tumours to preclinical models.
+
+Every method embeds all samples into one space. For each query sample the k nearest
+database samples are retrieved and graded on one of three axes:
+
+    ontology   simGIC between the query's and the neighbour's MONDO term   (simGIC@k)
+    mutation   Jaccard overlap of driver-gene mutation sets, per cohort    (Jaccard@k)
+    donor      1 when the neighbour is the query's own patient's PDX        (precision@k)
+
+Each axis also scores two bounds from the labels alone, Random and Oracle, so that every
+method sits between the floor a random ranking reaches and the ceiling the database admits.
+
+Usage:
+    uv run snakemake -s benchmark-workflow/Snakefile --cores <N> --scheduler greedy
+
+Results:
+    results/models/{method}/          latents.npy, latents.csv and the fitted model
+    results/ontology/{pair}/          one JSON per method and bound
+    results/mutation/{pair}/{cohort}/ one JSON per method and bound
+    results/donor/{pair}/             one JSON per method and bound
+    results/summary.csv, .md, .pdf    every score in one table and one figure
+"""
+
+import re
+from pathlib import Path
+
+from mapping_benchmark.datasets import load_spec
+
+configfile: "benchmark-workflow/config.yaml"
+
+WORKSPACE = Path(workflow.basedir).parent.resolve()
+SCRIPTS = "benchmark-workflow/scripts"
+RESOURCES = "benchmark-workflow/resources"
+
+# --- Data ----------------------------------------------------------------------------
+
+SPEC = load_spec(f"{WORKSPACE}/{RESOURCES}/datasets.yaml")
+RAW = "data/raw/expression.h5ad"
+METADATA = "data/raw/metadata.csv"
+ONTOLOGY = "data/raw/mondo.parquet"
+MUTATIONS = {name: f"data/raw/mutations/{name}.parquet"
+             for name, d in SPEC.datasets.items() if d.mutations}
+GENES = "data/processed/selected_genes.csv"
+# Every sample on the gene panel, and the training subset, each in TPM and log1p(TPM).
+PREPARED = "data/processed/{subset}{transform}.h5ad"
+TRAINING = ",".join(config["training_datasets"])
+
+# --- Axes ----------------------------------------------------------------------------
+
+AXES = {
+    "ontology": dict(config["ontology"], relevance="simgic", label_column="mondo_id"),
+    "donor": dict(config["donor"], relevance="binary", label_column="donor_id"),
+}
+MUTATION = config["mutation"]
+COHORTS = f"{RESOURCES}/mutation_cohorts.yaml"
+PANEL = "results/mutation/panel_genes.yaml"
+EXCLUDED = "results/mutation/excluded_queries.yaml"
+
+for name, pair in MUTATION["pairs"].items():
+    missing = {pair["query"], pair["database"]} - set(MUTATIONS)
+    assert not missing, f"mutation pair {name} uses {missing}, which have no mutation matrix"
+
+# --- Methods and bounds ---------------------------------------------------------------
+
+METHODS = config["methods"]
+BOUNDS = {"Random": "random", "Oracle": "oracle"}
+SCORED = list(METHODS) + list(BOUNDS)
+
+
+def methods_of(kind: str) -> str:
+    """Wildcard constraint matching the methods of one type."""
+    names = [m for m, cfg in METHODS.items() if cfg["type"] == kind]
+    return "|".join(re.escape(m) for m in names) if names else "(?!.*)"
+
+
+def method_flags(method: str, sep: str = "-") -> str:
+    """Every config key but `type`, as flags of the method's train command."""
+    return " ".join(f"--{k.replace('_', sep)} {v}"
+                    for k, v in METHODS[method].items() if k != "type")
+
+
+def any_of(names) -> str:
+    return "|".join(re.escape(n) for n in names) if names else "(?!.*)"
+
+
+def source(method: str) -> str:
+    """What an evaluation reads: a bound needs labels only, a method its latents too."""
+    if method in BOUNDS:
+        return f"--bound {BOUNDS[method]} --metadata {WORKSPACE}/{METADATA}"
+    return (f"--latents {WORKSPACE}/results/models/{method}/latents.npy "
+            f"--metadata {WORKSPACE}/results/models/{method}/latents.csv")
+
+
+def source_inputs(method: str) -> list[str]:
+    if method in BOUNDS:
+        return [METADATA]
+    return [f"results/models/{method}/latents.npy", f"results/models/{method}/latents.csv"]
+
+
+# =====================================================================================
+# Target
+# =====================================================================================
+
+RESULTS = (
+    [f"results/{axis}/{pair}/{m}.json"
+     for axis, cfg in AXES.items() for pair in cfg["pairs"] for m in SCORED]
+    + [f"results/mutation/{pair}/{cohort}/{m}.json"
+       for pair in MUTATION["pairs"] for cohort in MUTATION["cohorts"] for m in SCORED]
+)
+
+
+rule all:
+    input:
+        RESULTS,
+        "results/summary.csv",
+        "results/summary.md",
+        "results/summary.pdf",
+
+
+# =====================================================================================
+# Data
+# =====================================================================================
+
+rule download_data:
+    """Download every input and write it in the common layout."""
+    input:
+        spec=f"{RESOURCES}/datasets.yaml",
+    output:
+        expression=RAW,
+        metadata=METADATA,
+        ontology=ONTOLOGY,
+        mutations=list(MUTATIONS.values()),
+    log:
+        "logs/download_data.log",
+    shell:
+        """
+        uv run python {SCRIPTS}/export_datasets.py \
+            --spec {input.spec} \
+            --expression {output.expression} \
+            --metadata {output.metadata} \
+            --ontology {output.ontology} \
+            --mutation-dir data/raw/mutations \
+            2>&1 | tee {log}
+        """
+
+
+rule select_genes:
+    """The gene panel: the most variable genes within the training datasets."""
+    input:
+        RAW,
+    output:
+        GENES,
+    params:
+        n_genes=config["n_genes"],
+    log:
+        "logs/select_genes.log",
+    shell:
+        """
+        uv run python {SCRIPTS}/select_genes.py \
+            --input {input} --output {output} \
+            --datasets {TRAINING} --n-genes {params.n_genes} \
+            2>&1 | tee {log}
+        """
+
+
+rule prepare_data:
+    """Subset to the gene panel; `training` keeps the training datasets, `_log1p` logs."""
+    input:
+        data=RAW,
+        genes=GENES,
+    output:
+        PREPARED,
+    wildcard_constraints:
+        subset="expression|training",
+        transform="(_log1p)?",
+    params:
+        datasets=lambda wc: f"--datasets {TRAINING}" if wc.subset == "training" else "",
+        log1p=lambda wc: "--log1p" if wc.transform else "",
+    log:
+        "logs/prepare_{subset}{transform}.log",
+    shell:
+        """
+        uv run python {SCRIPTS}/prepare_data.py \
+            --input {input.data} --genes {input.genes} --output {output} \
+            {params.datasets} {params.log1p} \
+            2>&1 | tee {log}
+        """
+
+
+# =====================================================================================
+# Methods. Each is trained on the training datasets and then embeds every sample.
+# =====================================================================================
+
+rule train_pca:
+    input:
+        "data/processed/training.h5ad",
+    output:
+        "results/models/{method}/model/pca_model.joblib",
+    wildcard_constraints:
+        method=methods_of("pca"),
+    params:
+        flags=lambda wc: method_flags(wc.method),
+    log:
+        "logs/train_{method}.log",
+    shell:
+        """
+        uv run --directory baseline-models/SimplePCA simplepca-train \
+            --train-file {WORKSPACE}/{input} \
+            --output-dir {WORKSPACE}/results/models/{wildcards.method}/model \
+            --n-components {config[latent_dim]} --random-seed {config[random_seed]} \
+            {params.flags} \
+            2>&1 | tee {WORKSPACE}/{log}
+        """
+
+
+rule project_pca:
+    input:
+        model="results/models/{method}/model/pca_model.joblib",
+        data="data/processed/expression.h5ad",
+    output:
+        "results/models/{method}/latents.npy",
+        "results/models/{method}/latents.csv",
+    wildcard_constraints:
+        method=methods_of("pca"),
+    log:
+        "logs/project_{method}.log",
+    shell:
+        """
+        uv run --directory baseline-models/SimplePCA simplepca-project \
+            --model-dir {WORKSPACE}/results/models/{wildcards.method}/model \
+            --data-file {WORKSPACE}/{input.data} \
+            --output {WORKSPACE}/{output[0]} \
+            2>&1 | tee {WORKSPACE}/{log}
+        """
+
+
+rule train_scvi:
+    input:
+        "data/processed/training.h5ad",
+    output:
+        "results/models/{method}/model/model.pt",
+    wildcard_constraints:
+        method=methods_of("scvi"),
+    params:
+        flags=lambda wc: method_flags(wc.method),
+    log:
+        "logs/train_{method}.log",
+    shell:
+        """
+        uv run --directory baseline-models/scVI scvi-train \
+            --train-file {WORKSPACE}/{input} \
+            --output-dir {WORKSPACE}/results/models/{wildcards.method}/model \
+            --n-latent {config[latent_dim]} --random-seed {config[random_seed]} \
+            {params.flags} \
+            2>&1 | tee {WORKSPACE}/{log}
+        """
+
+
+rule project_scvi:
+    input:
+        model="results/models/{method}/model/model.pt",
+        data="data/processed/expression.h5ad",
+    output:
+        latents="results/models/{method}/latents.npy",
+        metadata="results/models/{method}/latents.csv",
+    wildcard_constraints:
+        method=methods_of("scvi"),
+    log:
+        "logs/project_{method}.log",
+    shell:
+        """
+        uv run --directory baseline-models/scVI scvi-project \
+            --model-dir {WORKSPACE}/results/models/{wildcards.method}/model \
+            --data-file {WORKSPACE}/{input.data} \
+            --output-latents {WORKSPACE}/{output.latents} \
+            --output-metadata {WORKSPACE}/{output.metadata} \
+            2>&1 | tee {WORKSPACE}/{log}
+        """
+
+
+rule train_mober:
+    """MOBER reads log1p(TPM); upstream flags use underscores."""
+    input:
+        "data/processed/training_log1p.h5ad",
+    output:
+        "results/models/{method}/model/models/batch_ae_final.model",
+    wildcard_constraints:
+        method=methods_of("mober"),
+    params:
+        flags=lambda wc: method_flags(wc.method, sep="_"),
+    log:
+        "logs/train_{method}.log",
+    shell:
+        """
+        uv run --directory baseline-models/MOBER mober train \
+            --train_file {WORKSPACE}/{input} \
+            --output_dir {WORKSPACE}/results/models/{wildcards.method}/model \
+            --encoding_dim {config[latent_dim]} --random_seed {config[random_seed]} \
+            {params.flags} \
+            2>&1 | tee {WORKSPACE}/{log}
+        """
+
+
+rule project_mober:
+    input:
+        model="results/models/{method}/model/models/batch_ae_final.model",
+        data="data/processed/expression_log1p.h5ad",
+    output:
+        "results/models/{method}/latents.npy",
+        "results/models/{method}/latents.csv",
+    wildcard_constraints:
+        method=methods_of("mober"),
+    log:
+        "logs/project_{method}.log",
+    shell:
+        """
+        uv run --directory baseline-models/MOBER mober-extract-latents \
+            --model-dir {WORKSPACE}/results/models/{wildcards.method}/model \
+            --data-file {WORKSPACE}/{input.data} \
+            --output {WORKSPACE}/{output[0]} \
+            2>&1 | tee {WORKSPACE}/{log}
+        """
+
+
+# =====================================================================================
+# Axes 1 and 3: ontology and donor
+# =====================================================================================
+
+rule evaluate:
+    """Score one method or bound on one pair; the axis fixes the relevance and the label."""
+    input:
+        lambda wc: source_inputs(wc.method),
+        ontology=ONTOLOGY,
+    output:
+        "results/{axis}/{pair}/{method}.json",
+    wildcard_constraints:
+        axis=any_of(AXES),
+        pair=any_of({p for cfg in AXES.values() for p in cfg["pairs"]}),
+        method=any_of(SCORED),
+    params:
+        source=lambda wc: source(wc.method),
+        query=lambda wc: AXES[wc.axis]["pairs"][wc.pair]["query"],
+        database=lambda wc: AXES[wc.axis]["pairs"][wc.pair]["database"],
+        relevance=lambda wc: AXES[wc.axis]["relevance"],
+        label_column=lambda wc: AXES[wc.axis]["label_column"],
+        k=lambda wc: AXES[wc.axis]["k"],
+    log:
+        "logs/evaluate_{axis}_{pair}_{method}.log",
+    shell:
+        """
+        uv run python {SCRIPTS}/evaluate.py \
+            {params.source} \
+            --query-dataset {params.query} --database-dataset {params.database} \
+            --relevance {params.relevance} --label-column {params.label_column} \
+            --ontology {input.ontology} --k {params.k} \
+            --output {output} \
+            2>&1 | tee {log}
+        """
+
+
+# =====================================================================================
+# Axis 2: mutation
+# =====================================================================================
+
+rule mutation_panel:
+    input:
+        mutations=list(MUTATIONS.values()),
+        metadata=METADATA,
+    output:
+        panel=PANEL,
+        excluded=EXCLUDED,
+    params:
+        datasets=",".join(sorted({d for p in MUTATION["pairs"].values() for d in p.values()})),
+        queries=",".join(sorted({p["query"] for p in MUTATION["pairs"].values()})),
+    log:
+        "logs/mutation_panel.log",
+    shell:
+        """
+        uv run python {SCRIPTS}/mutation_panel.py \
+            --mutation-dir data/raw/mutations \
+            --datasets {params.datasets} --query-datasets {params.queries} \
+            --metadata {input.metadata} \
+            --panel-out {output.panel} --excluded-out {output.excluded} \
+            2>&1 | tee {log}
+        """
+
+
+rule evaluate_mutation:
+    """Score one method or bound on one pair and cohort."""
+    input:
+        lambda wc: source_inputs(wc.method),
+        query=lambda wc: MUTATIONS[MUTATION["pairs"][wc.pair]["query"]],
+        database=lambda wc: MUTATIONS[MUTATION["pairs"][wc.pair]["database"]],
+        panel=PANEL,
+        cohorts=COHORTS,
+        ontology=ONTOLOGY,
+    output:
+        "results/mutation/{pair}/{cohort}/{method}.json",
+    wildcard_constraints:
+        pair=any_of(MUTATION["pairs"]),
+        cohort=any_of(MUTATION["cohorts"]),
+        method=any_of(SCORED),
+    params:
+        source=lambda wc: source(wc.method),
+        query=lambda wc: MUTATION["pairs"][wc.pair]["query"],
+        database=lambda wc: MUTATION["pairs"][wc.pair]["database"],
+        k=MUTATION["k"],
+    log:
+        "logs/evaluate_mutation_{pair}_{cohort}_{method}.log",
+    shell:
+        """
+        uv run python {SCRIPTS}/evaluate_mutations.py \
+            {params.source} \
+            --query-dataset {params.query} --database-dataset {params.database} \
+            --query-mutations {input.query} --database-mutations {input.database} \
+            --panel {input.panel} --cohorts {input.cohorts} --cohort {wildcards.cohort} \
+            --label-column mondo_id --ontology {input.ontology} --k {params.k} \
+            --output {output} \
+            2>&1 | tee {log}
+        """
+
+
+# =====================================================================================
+# Summary
+# =====================================================================================
+
+rule summarize:
+    input:
+        RESULTS,
+    output:
+        csv="results/summary.csv",
+        md="results/summary.md",
+    log:
+        "logs/summarize.log",
+    shell:
+        """
+        uv run python {SCRIPTS}/summarize.py \
+            --results-dir results --csv {output.csv} --markdown {output.md} \
+            2>&1 | tee {log}
+        """
+
+
+rule plot_summary:
+    input:
+        "results/summary.csv",
+    output:
+        "results/summary.pdf",
+        "results/summary.png",
+    log:
+        "logs/plot_summary.log",
+    shell:
+        """
+        uv run python {SCRIPTS}/plot_summary.py --summary {input} --output {output[0]} \
+            2>&1 | tee {log}
+        """

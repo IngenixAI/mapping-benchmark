@@ -1,0 +1,467 @@
+<title>simGIC on the ontology graph</title>
+<style>
+__THEME__
+  :root { --only-a: #2a78d6; --only-b: #e07b3c; --both: #23916d; --dim: 0.14; }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      --only-a: #5aa2f0; --only-b: #f0954f; --both: #35b98d; --dim: 0.16;
+    }
+  }
+  :root[data-theme="dark"] { --only-a: #5aa2f0; --only-b: #f0954f; --both: #35b98d; --dim: 0.16; }
+
+  .sub { margin: 0 0 10px; max-width: 78ch; }
+  .controls { margin: 14px 0 12px; }
+  input[type="search"] { width: 220px; }
+  /* Buttons, not a <select>: a native option list does not open in every viewer a
+     downloaded file lands in (Quick Look, an IDE preview pane), and there are two of them. */
+  .seg { display: flex; gap: 6px; }
+  button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+  .layout { display: flex; gap: 16px; align-items: flex-start; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; }
+  .canvas { flex: 1 1 auto; min-width: 0; position: relative; overflow: hidden; }
+  .canvas svg { display: block; width: 100%; height: 74vh; cursor: grab; touch-action: none; }
+  .canvas svg.dragging { cursor: grabbing; }
+  .side { flex: 0 0 320px; padding: 12px 14px; font-size: 12.5px; }
+
+  /* Edges and nodes carry the cone they belong to; nothing outside the two cones is
+     removed, only faded, so the pair keeps its place in the whole graph. */
+  line { stroke: color-mix(in srgb, var(--muted) 40%, transparent); stroke-width: 1; }
+  circle { stroke: var(--surface-1); stroke-width: 0.6; fill: var(--muted); }
+  .picked line, .picked circle { opacity: var(--dim); }
+  .cone-a { opacity: 1 !important; }
+  .cone-b { opacity: 1 !important; }
+  .cone-ab { opacity: 1 !important; }
+  circle.cone-a { fill: var(--only-a); }
+  circle.cone-b { fill: var(--only-b); }
+  circle.cone-ab { fill: var(--both); }
+  line.cone-a { stroke: var(--only-a); stroke-width: 1.4; }
+  line.cone-b { stroke: var(--only-b); stroke-width: 1.4; }
+  line.cone-ab { stroke: var(--both); stroke-width: 1.6; }
+  circle.pick { stroke: var(--ink); stroke-width: 2; opacity: 1 !important; }
+  circle.hit { stroke: var(--accent); stroke-width: 1.6; opacity: 1 !important; }
+  text { fill: var(--ink-2); paint-order: stroke;
+         stroke: var(--surface-1); stroke-width: 3px; pointer-events: none; opacity: 0; }
+  text.show { opacity: 1; }
+
+  .tip {
+    position: absolute; pointer-events: none; z-index: 3; max-width: 260px;
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 7px;
+    padding: 5px 8px; font-size: 12px; box-shadow: 0 2px 10px rgba(0,0,0,.18);
+  }
+  .score { font-size: 30px; font-weight: 650; font-variant-numeric: tabular-nums; margin: 2px 0 0; }
+  .side h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em;
+             color: var(--muted); margin: 16px 0 6px; font-weight: 600; }
+  .side h2:first-child { margin-top: 0; }
+  .pickrow { display: flex; gap: 7px; align-items: baseline; margin-bottom: 4px; }
+  .swatch { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+  .side table { border-collapse: collapse; width: 100%; font-size: 12px; }
+  .side td { padding: 3px 0; border-bottom: 1px solid var(--rule); }
+  .side td.n { text-align: right; font-variant-numeric: tabular-nums; }
+  .side ol { margin: 4px 0 0; padding-left: 18px; }
+  .side tr.pickable { cursor: pointer; }
+  .side tr.pickable:hover td { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  .side li { margin-bottom: 2px; }
+  .muted { color: var(--muted); }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 12px;
+            color: var(--ink-2); margin: 0 0 10px; align-items: center; }
+  .legend span.key { display: inline-flex; align-items: center; gap: 6px; }
+  .note { font-size: 12px; color: var(--muted); margin-top: 10px; }
+  code { font-size: 11.5px; }
+</style>
+
+<div class="viz-root">
+  <h1>simGIC on the ontology graph</h1>
+  <p class="sub">Click a term, then a second one. simGIC is
+    <code>Σ IC(A ∩ B) / Σ IC(A ∪ B)</code> over the two <b>ancestor cones</b> — the term
+    itself plus everything above it — so the page paints exactly the sets the ratio is
+    taken over: <b style="color:var(--both)">shared</b>,
+    <b style="color:var(--only-a)">only A</b>, <b style="color:var(--only-b)">only B</b>.
+    A node's <b>area grows with its information content</b>: the root is a dot and weighs
+    nothing on either side of the ratio, a leaf is fat and carries the score.</p>
+  <p class="sub"><b>Information content</b> is <code>−ln(terms at or below t / terms)</code>,
+    rarity as the ontology was written, so a score never moves with the mix of samples under
+    test.</p>
+  <p class="sub">The graph is MONDO restricted to the terms this benchmark reaches
+    — every annotated term plus its full closure, so a drawn cone is the whole cone the
+    score sums over. MONDO is a DAG: a term can sit under several parents, and
+    a cone is a set, so a term reached twice is still counted once. Rows are longest-path
+    depth. Scroll to zoom, drag to pan.</p>
+  <p class="sub">With <b>one</b> term picked, every other term is scored against it and the
+    graph dims by that score — the brighter a node, the more simGIC it shares with your pick,
+    so the terms worth comparing stand out of the hundreds that do not. The panel ranks
+    them; click a row (or the
+    node) to make it B. Every pair at once, clustered into blocks, is
+    <a href="simgic_matrix.html">the matrix</a>.</p>
+
+  <div class="controls">
+    <div class="field"><label>Ontology</label><span class="seg" id="onto"></span></div>
+    <div class="field"><label for="q">Find term</label>
+      <input id="q" type="search" placeholder="lung adenocarcinoma, MONDO:0004992"></div>
+    <div class="field"><label>&nbsp;</label><button id="labels" aria-pressed="false">Labels: off</button></div>
+    <div class="field"><label>&nbsp;</label><button id="clear">Clear pair</button></div>
+    <div class="field"><label>&nbsp;</label><button id="fit">Reset view</button></div>
+  </div>
+
+  <div class="legend">
+    <span class="key"><i class="swatch" style="background:var(--both)"></i> in both cones</span>
+    <span class="key"><i class="swatch" style="background:var(--only-a)"></i> only above A</span>
+    <span class="key"><i class="swatch" style="background:var(--only-b)"></i> only above B</span>
+    <span class="key"><svg width="58" height="14" style="overflow:visible">
+      <circle cx="5" cy="7" r="2.4" fill="var(--muted)"></circle>
+      <circle cx="22" cy="7" r="4.6" fill="var(--muted)"></circle>
+      <circle cx="45" cy="7" r="8" fill="var(--muted)"></circle></svg> IC 1 · 4 · 9</span>
+  </div>
+
+  <div class="layout">
+    <div class="card canvas" id="canvas">
+      <svg id="svg"><g id="edges"></g><g id="nodes"></g><g id="texts"></g></svg>
+    </div>
+    <div class="card side" id="side"></div>
+  </div>
+  <p class="note" id="foot"></p>
+</div>
+
+<script>
+const DATA = __DATA__;
+const $ = id => document.getElementById(id);
+const XS = 36, PAD = 60;               // px between columns, and around the drawing
+let YS = 74;                           // px between rows, set per view to fill the canvas
+
+let V = null;                          // selected view
+let up = [];                           // node index -> its ancestor cone, as a Set of indices
+let pick = [null, null];               // A, B
+let box = null;                        // current viewBox
+let rows = [];                         // depth -> node indices, left to right
+let sims = null;                       // with one term picked: its simGIC against every node
+let showLabels = false;
+const svg = $("svg");
+
+// The cone is the closure of the parent edges, memoised: a DAG can reach one term by
+// several paths and the score reads the set, so a term found twice must not be summed twice.
+function cone(i) {
+  if (up[i]) return up[i];
+  const seen = new Set(), stack = [i];
+  while (stack.length) {
+    const j = stack.pop();
+    if (seen.has(j)) continue;
+    seen.add(j);
+    V.nodes[j].p.forEach(p => stack.push(p));
+  }
+  return (up[i] = seen);
+}
+
+// A term's information content, as exported.
+const icv = n => n.ic;
+
+// simGIC over two cones.
+function ratio(a, b) {
+  let shared = 0, union = 0;
+  for (const i of a) {
+    const v = icv(V.nodes[i]);
+    union += v;
+    if (b.has(i)) shared += v;
+  }
+  for (const i of b) if (!a.has(i)) union += icv(V.nodes[i]);
+  return union ? Math.min(shared / union, 1) : 0;
+}
+const icOf = s => [...s].reduce((t, i) => t + icv(V.nodes[i]), 0);
+
+// simGIC of the picked term against every term in the view. One pass per node over its own
+// cone — a few thousand set lookups for the whole graph, so it can run on every click. The
+// union is read as |A| + |C| - |A n C| rather than built as a set, which is the same number.
+function scoreAll(ia) {
+  const a = cone(ia);
+  let icA = 0;
+  for (const j of a) icA += icv(V.nodes[j]);
+  return V.nodes.map((_, i) => {
+    if (i === ia) return 1;
+    let shared = 0, icC = 0;
+    for (const j of cone(i)) {
+      const v = icv(V.nodes[j]);
+      icC += v;
+      if (a.has(j)) shared += v;
+    }
+    const union = icA + icC - shared;
+    return union ? Math.min(shared / union, 1) : 0;
+  });
+}
+const radius = ic => 1.2 + 3.7 * Math.sqrt(Math.max(ic, 0));
+const px = n => PAD + n.x * XS;
+const py = n => PAD + n.y * YS;
+const fmt = x => x.toFixed(2);
+
+function build(key) {
+  V = DATA.views[key];
+  for (const b of $("onto").children) b.setAttribute("aria-pressed", String(b.dataset.k === key));
+  up = [];
+  pick = [null, null];
+  // Row spacing is chosen so the drawing has the canvas's own aspect ratio: a fixed one
+  // letterboxes a wide, shallow DAG into the middle third of the box and wastes the room
+  // the labels need. Clamped, so a two-row view does not become a ladder.
+  rows = [];
+  V.nodes.forEach((n, i) => (rows[n.y] = rows[n.y] || []).push(i));
+  rows.forEach(row => row.sort((i, j) => V.nodes[i].x - V.nodes[j].x));
+  const wide = 2 * PAD + XS * Math.max(...V.nodes.map(n => n.x));
+  const rect = svg.getBoundingClientRect();
+  YS = Math.min(190, Math.max(60,
+    (wide * rect.height / rect.width - 2 * PAD) / Math.max(1, Math.max(...V.nodes.map(n => n.y)))));
+  $("edges").innerHTML = V.nodes.flatMap((n, i) =>
+    n.p.map(p => `<line data-c="${i}" data-p="${p}" x1="${px(n)}" y1="${py(n)}" ` +
+                 `x2="${px(V.nodes[p])}" y2="${py(V.nodes[p])}"></line>`)).join("");
+  $("nodes").innerHTML = V.nodes.map((n, i) =>
+    `<circle data-i="${i}" cx="${px(n)}" cy="${py(n)}" r="${radius(icv(n)).toFixed(2)}"></circle>`).join("");
+  $("texts").innerHTML = V.nodes.map((n, i) =>
+    `<text data-i="${i}" x="${px(n) + radius(icv(n)) + 2}" y="${py(n) + 3}">${esc(n.name)}</text>`).join("");
+  fit();
+  paint();
+}
+
+const esc = s => s.replace(/[<>&]/g, c => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]));
+
+function fit() {
+  const w = Math.max(...V.nodes.map(px)) + PAD, h = Math.max(...V.nodes.map(py)) + PAD;
+  box = { x: 0, y: 0, w, h };
+  applyBox();
+}
+function applyBox() {
+  $("svg").setAttribute("viewBox", `${box.x} ${box.y} ${box.w} ${box.h}`);
+  // Labels are drawn in user units, so without this they shrink as the view zooms out
+  // and the two picked terms — the whole point of the page — become unreadable.
+  const r = svg.getBoundingClientRect();
+  $("texts").style.fontSize = (11.5 * Math.max(box.w / r.width, box.h / r.height)).toFixed(2) + "px";
+  labels();
+}
+
+// Which names to draw. Always the picked pair and the search hits; with the toggle on,
+// as many of the rest as fit — a row holds 100 terms and drawing all of them is a smear,
+// so each row takes names left to right and skips anything that would overlap the last
+// one at the *current* zoom. Zooming in therefore reveals more names.
+function labels() {
+  if (!V) return;
+  const [ia, ib] = pick;
+  const q = $("q").value.trim().toLowerCase();
+  const per = box.w / svg.getBoundingClientRect().width;      // user units per screen px
+  const fits = new Set();
+  if (showLabels)
+    for (const row of rows) {
+      let last = -Infinity;
+      for (const i of row) {
+        const n = V.nodes[i], x = px(n);
+        if (x < last || x < box.x || x > box.x + box.w) continue;
+        if (py(n) < box.y || py(n) > box.y + box.h) continue;
+        fits.add(i);
+        last = x + (n.name.length * 6.2 + 16) * per;
+      }
+    }
+  for (const t of $("texts").children) {
+    const i = +t.dataset.i, n = V.nodes[i];
+    t.classList.toggle("show", i === ia || i === ib || fits.has(i) ||
+      !!(q && (n.name + " " + n.id).toLowerCase().includes(q)));
+  }
+}
+
+// --- selection ---------------------------------------------------------------
+
+function choose(i) {
+  if (pick[0] === i) pick = [pick[1], null];
+  else if (pick[1] === i) pick = [pick[0], null];
+  else if (pick[0] === null) pick = [i, null];
+  else if (pick[1] === null) pick = [pick[0], i];
+  else pick = [i, null];                     // a third click starts a new pair
+  paint();
+}
+
+function classOf(i, a, b) {
+  const inA = a && a.has(i), inB = b && b.has(i);
+  return inA && inB ? "cone-ab" : inA ? "cone-a" : inB ? "cone-b" : "";
+}
+
+function paint() {
+  const [ia, ib] = pick;
+  const a = ia === null ? null : cone(ia), b = ib === null ? null : cone(ib);
+  const q = $("q").value.trim().toLowerCase();
+  // Only while a single term is picked: with a pair, the three cone colours are the reading
+  // and a second scale over the same nodes would just fight them.
+  sims = a && !b ? scoreAll(ia) : null;
+  // Everything off the cone is dimmed *by how close it is to the picked term*, against the
+  // best score on offer — raw simGIC rarely passes 0.6, so scaling to the maximum is what
+  // makes the candidates worth clicking visible rather than uniformly faint.
+  const peak = sims ? Math.max(...sims.filter((_, i) => !a.has(i)), 1e-9) : 0;
+  $("svg").classList.toggle("picked", !!(a || b));
+  for (const c of $("nodes").children) {
+    const i = +c.dataset.i, n = V.nodes[i];
+    const hit = q && (n.name + " " + n.id).toLowerCase().includes(q);
+    c.setAttribute("class", [classOf(i, a, b), i === ia || i === ib ? "pick" : "",
+                             hit ? "hit" : ""].filter(Boolean).join(" "));
+    c.style.opacity = sims && !a.has(i)
+      ? (0.06 + 0.94 * Math.pow(sims[i] / peak, 0.8)).toFixed(3) : "";
+  }
+  // An edge is inside a cone when both of its ends are — judged against the *cones*, not
+  // against the colours the ends were given. Comparing the ends' classes instead drops
+  // every edge that leaves the only-A region for the shared one, which is exactly the edge
+  // from a term to its first common ancestor.
+  for (const l of $("edges").children) {
+    const c = +l.dataset.c, p = +l.dataset.p;
+    const inA = !!a && a.has(c) && a.has(p), inB = !!b && b.has(c) && b.has(p);
+    l.setAttribute("class", inA && inB ? "cone-ab" : inA ? "cone-a" : inB ? "cone-b" : "");
+  }
+  labels();
+  side(ia, ib, a, b);
+}
+
+function row(label, colour, count, ic) {
+  return `<tr><td><i class="swatch" style="background:${colour};display:inline-block;` +
+    `margin-right:6px"></i>${label}</td><td class="n">${count}</td>` +
+    `<td class="n">${fmt(ic)}</td></tr>`;
+}
+
+function term(slot, i, colour) {
+  if (i === null) return `<div class="pickrow"><i class="swatch" style="background:${colour}"></i>` +
+    `<span class="muted">${slot} — click a node</span></div>`;
+  const n = V.nodes[i];
+  return `<div class="pickrow"><i class="swatch" style="background:${colour}"></i><span>` +
+    `<b>${esc(n.name)}</b><br><span class="muted">${n.id} · IC ${fmt(icv(n))} · ` +
+    `${cone(i).size} terms in its cone</span></span></div>`;
+}
+
+function side(ia, ib, a, b) {
+  let html = `<h2>The pair</h2>${term("A", ia, "var(--only-a)")}${term("B", ib, "var(--only-b)")}`;
+  if (a && b) {
+    const shared = [...a].filter(i => b.has(i));
+    const onlyA = [...a].filter(i => !b.has(i)), onlyB = [...b].filter(i => !a.has(i));
+    const icShared = icOf(shared), icU = icShared + icOf(onlyA) + icOf(onlyB);
+    const top = shared.sort((i, j) => icv(V.nodes[j]) - icv(V.nodes[i])).slice(0, 5);
+    html += `<h2>simGIC</h2><p class="score">${ratio(a, b).toFixed(3)}</p>` +
+      `<p class="muted" style="margin:2px 0 0">${fmt(icShared)} / ${fmt(icU)} — ` +
+      `Jaccard ${fmt(shared.length / (onlyA.length + onlyB.length + shared.length))} ` +
+      `on the same sets, unweighted</p>` +
+      `<h2>The cones</h2><table>` +
+      `<tr class="muted"><td>set</td><td class="n">terms</td><td class="n">Σ IC</td></tr>` +
+      row("shared", "var(--both)", shared.length, icShared) +
+      row("only A", "var(--only-a)", onlyA.length, icOf(onlyA)) +
+      row("only B", "var(--only-b)", onlyB.length, icOf(onlyB)) +
+      `<tr><td><b>union</b></td><td class="n"><b>${shared.length + onlyA.length + onlyB.length}` +
+      `</b></td><td class="n"><b>${fmt(icU)}</b></td></tr></table>` +
+      `<h2>Heaviest shared terms</h2><ol>` +
+      top.map(i => `<li>${esc(V.nodes[i].name)} <span class="muted">${fmt(icv(V.nodes[i]))}</span></li>`).join("") +
+      `</ol><p class="note">The first is the most informative common ancestor — the only ` +
+      `term Lin similarity would look at. simGIC keeps the whole list, on both sides.</p>`;
+  } else if (sims) {
+    // The whole ranking, not just the graph: the brightest node is easy to see and hard to
+    // hit, so every candidate is also a row you can click to make it B.
+    const rank = V.nodes.map((n, i) => i)
+      .filter(i => i !== ia && sims[i] > 0)
+      .sort((i, j) => sims[j] - sims[i])
+      .slice(0, 15);
+    html += `<h2>Closest terms to A</h2>` +
+      `<p class="muted" style="margin:0 0 6px">simGIC against every term in this view. ` +
+      `Brighter nodes on the graph are the higher-scoring ones; click a row to make it B.</p>` +
+      `<table>${rank.map(i => `<tr class="pickable" data-i="${i}"><td>${esc(V.nodes[i].name)}` +
+        `${a.has(i) ? ' <span class="muted">above A</span>' : ""}</td>` +
+        `<td class="n">${sims[i].toFixed(3)}</td></tr>`).join("")}</table>`;
+  } else {
+    html += `<p class="note">Pick a term and every other one is scored against it — the ` +
+      `brighter a node, the closer. Pick a second to see the two cones. Clicking a picked ` +
+      `term drops it; a click with both slots full starts a new pair.</p>`;
+  }
+  $("side").innerHTML = html;
+}
+
+// --- pan, zoom, hover --------------------------------------------------------
+
+const tip = document.createElement("div");
+tip.className = "tip";
+tip.style.display = "none";
+$("canvas").appendChild(tip);
+
+// Client px -> user units, so a wheel zoom keeps the term under the cursor put.
+function atCursor(e) {
+  const r = svg.getBoundingClientRect();
+  const scale = Math.max(box.w / r.width, box.h / r.height);   // preserveAspectRatio=meet
+  return { x: box.x + box.w / 2 + (e.clientX - r.left - r.width / 2) * scale,
+           y: box.y + box.h / 2 + (e.clientY - r.top - r.height / 2) * scale, scale };
+}
+
+svg.addEventListener("wheel", e => {
+  e.preventDefault();
+  const p = atCursor(e), k = Math.exp(e.deltaY * 0.0012);
+  box = { x: p.x - (p.x - box.x) * k, y: p.y - (p.y - box.y) * k, w: box.w * k, h: box.h * k };
+  applyBox();
+}, { passive: false });
+
+// The node nearest the cursor, or null. Not the SVG's own hit testing: zoomed out to the
+// whole graph a node is one or two pixels across, which is not something anyone can click.
+// The slack is in screen pixels, so it stays the same size as the view zooms.
+function nodeAt(p) {
+  let best = null, closest = 13 * p.scale;
+  V.nodes.forEach((n, i) => {
+    const d = Math.hypot(px(n) - p.x, py(n) - p.y) - radius(icv(n));
+    if (d < closest) { closest = d; best = i; }
+  });
+  return best;
+}
+
+let drag = null;
+svg.addEventListener("pointerdown", e => {
+  // The node is resolved *here*: a pointer capture retargets every later event to the
+  // <svg>, so reading it off the pointerup would find the canvas and never a term.
+  const p = atCursor(e);
+  drag = { ...p, moved: false, hit: nodeAt(p) };
+});
+svg.addEventListener("pointermove", e => {
+  const p = atCursor(e);
+  if (!drag) {
+    const i = nodeAt(p);
+    tip.style.display = i === null ? "none" : "";
+    if (i === null) return;
+    const n = V.nodes[i], r = $("canvas").getBoundingClientRect();
+    tip.innerHTML = `<b>${esc(n.name)}</b><br><span class="muted">${n.id} · IC ${fmt(icv(n))}` +
+      `${n.annotated ? " · annotated in the corpus" : ""}` +
+      `${sims && i !== pick[0] ? ` · simGIC vs A ${sims[i].toFixed(3)}` : ""}</span>`;
+    tip.style.left = Math.min(e.clientX - r.left + 12, r.width - 270) + "px";
+    tip.style.top = (e.clientY - r.top + 12) + "px";
+    return;
+  }
+  if (!drag.moved && Math.hypot(p.x - drag.x, p.y - drag.y) > drag.scale * 4) {
+    // Capture only once a pan is real, so a plain click never goes through it: the drag
+    // then keeps following the pointer even when it leaves the canvas.
+    drag.moved = true;
+    tip.style.display = "none";
+    svg.setPointerCapture(e.pointerId);
+    svg.classList.add("dragging");
+  }
+  if (!drag.moved) return;
+  box = { ...box, x: box.x + drag.x - p.x, y: box.y + drag.y - p.y };
+  applyBox();
+});
+const endDrag = () => {
+  if (drag && drag.hit !== null && !drag.moved) choose(drag.hit);
+  drag = null;
+  svg.classList.remove("dragging");
+};
+svg.addEventListener("pointerup", endDrag);
+svg.addEventListener("pointercancel", () => { drag = null; svg.classList.remove("dragging"); });
+svg.addEventListener("pointerleave", () => { if (!drag) tip.style.display = "none"; });
+
+$("labels").onclick = () => {
+  showLabels = !showLabels;
+  $("labels").setAttribute("aria-pressed", String(showLabels));
+  $("labels").textContent = `Labels: ${showLabels ? "on" : "off"}`;
+  labels();
+};
+$("side").onclick = e => {
+  const tr = e.target.closest("[data-i]");
+  if (tr) choose(+tr.dataset.i);
+};
+$("clear").onclick = () => { pick = [null, null]; paint(); };
+$("fit").onclick = fit;
+$("q").oninput = paint;
+$("onto").innerHTML = Object.entries(DATA.views)
+  .map(([k, v]) => `<button data-k="${k}">${v.label}</button>`).join("");
+$("onto").onclick = e => { const b = e.target.closest("button"); if (b) build(b.dataset.k); };
+build(Object.keys(DATA.views)[0]);
+$("foot").textContent =
+  "Information content is the share of MONDO's own terms at or below a term, so a score " +
+  "never moves with the mix of samples under test. The graph, the weights and the ratio " +
+  "are mapping_benchmark.ontology's, the same ones the benchmark scores with.";
+</script>

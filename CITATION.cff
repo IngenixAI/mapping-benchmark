@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+message: If you use this benchmark, please cite it as below.
+title: "What counts as a good match? A three-axis, bounded benchmark for mapping patient tumours to preclinical models"
+type: software
+authors:
+  - family-names: Roethel
+    given-names: Albert
+  - family-names: Czyż
+    given-names: Paweł
+  - family-names: Możwiłło
+    given-names: Aleksandra
+  - family-names: Augustyniak
+    given-names: Alicja
+  - family-names: Krawczyk
+    given-names: Joanna
+  - family-names: Satława
+    given-names: Tadeusz
+  - family-names: Biernat
+    given-names: Paweł
+  - family-names: Jetka
+    given-names: Tomasz
+repository-code: https://github.com/ingenixai/biological-model-matching-benchmark
+license: Apache-2.0
+date-released: 2026-09-15

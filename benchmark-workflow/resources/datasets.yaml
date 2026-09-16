@@ -1,0 +1,66 @@
+# Every input of the benchmark comes from one HuggingFace dataset, pinned to a revision.
+hf_repo: ingenix/mapping_benchmark
+hf_revision: e5d400201b37eeadc1879af354f37c6ad4c6f600
+
+# The MONDO disease graph, exported to data/raw/mondo.parquet with the columns id, name and
+# parents. `id`, `name` and `parents` are the table's own columns; `sample_id` and
+# `sample_name` are the obs columns of every expression file that hold the sample's term,
+# exported as mondo_id and mondo_name.
+ontology:
+  file: mondo_ontology/train-00000-of-00001.parquet
+  id: mondo_id
+  name: name
+  parents: direct_ancestors_ids
+  sample_id: ontology_disease_matched_id
+  sample_name: ontology_disease_matched_name
+
+# Somatic mutations, as three long tables covering every dataset that has them. The
+# exporter turns them into one binary sample-by-gene matrix per dataset
+# (data/raw/mutations/<dataset>.parquet); the dataset card documents the tables.
+mutations:
+  mutated_genes: mutations/mutated_genes.parquet       # dataset, sample_id, gene_id_ensembl
+  assayed_samples: mutations/assayed_samples.parquet   # dataset, sample_id
+  assayed_genes: mutations/assayed_genes.parquet       # dataset, gene_id_ensembl
+
+# One entry per benchmark dataset.
+#   expression  the h5ad in the repository (TPM, 19,260 genes)
+#   keep        only rows whose obs column holds this value are kept
+#   exclude     sample ids dropped after that
+#   mutations   true for the datasets present in the mutation tables above
+# How the paired human/PDX study is split into two datasets is derived from its own obs
+# columns: see DERIVED in src/mapping_benchmark/datasets.py.
+datasets:
+  tcga:
+    expression: tcga_tpm.h5ad
+    keep: {condition: Tumor}   # the file also carries 740 adjacent-normal samples
+    mutations: true
+  depmap:
+    expression: depmap_tpm.h5ad
+    mutations: true
+    # Pediatric or infant lines, and lines whose annotation does not match the cell line.
+    exclude:
+      - CVCL_0027   # HepG2, hepatoblastoma, pediatric
+      - CVCL_4381   # HuH-6, hepatoblastoma, pediatric
+      - CVCL_0525   # SK-HEP-1, endothelial origin, not hepatocellular carcinoma
+      - CVCL_7970   # KMCH-1, mixed hepatocellular-cholangiocarcinoma
+      - CVCL_1221   # G-402, rhabdoid tumour of the kidney, pediatric
+      - CVCL_B3PK   # CCLF_PEDS_0001_T, renal medullary carcinoma, pediatric
+      - CVCL_0216   # CMK, Down syndrome infant megakaryoblastic leukemia
+      - CVCL_0217   # CMK-115, subclone of CMK
+      - CVCL_A280   # CHRF-288-11, infant megakaryoblastic leukemia
+      - CVCL_2106   # M-07e, infant megakaryoblastic leukemia
+      - CVCL_0589   # Kasumi-1, pediatric acute myeloid leukemia
+      - CVCL_0064   # MV4-11, pediatric acute myeloid leukemia
+      - CVCL_0378   # KNS-42, pediatric glioblastoma
+  metaprism:
+    expression: metaprism_tpm.h5ad
+    mutations: true
+  pdxe:
+    expression: pdxe_tpm.h5ad
+  # One study, two datasets: the patients' tumours and the xenografts grown from them.
+  aphrodite_human:
+    expression: gse317901_tpm.h5ad
+    keep: {sample_type: human}
+  aphrodite_pdx:
+    expression: gse317901_tpm.h5ad
+    keep: {sample_type: pdx}

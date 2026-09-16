@@ -1,0 +1,23 @@
+# Cohorts of the mutation axis. A cohort keeps the query and database samples whose MONDO
+# term is listed; `pan` keeps every sample. The gene panel is the same for every cohort.
+breast:   # every term under breast carcinoma (MONDO:0004989)
+  - MONDO:0004989   # breast carcinoma
+  - MONDO:0006256   # invasive breast carcinoma
+  - MONDO:0005590   # breast ductal adenocarcinoma
+  - MONDO:0004953   # invasive ductal breast carcinoma
+  - MONDO:0004988   # breast adenocarcinoma
+  - MONDO:0005023   # ductal breast carcinoma in situ
+  - MONDO:0006043   # metaplastic breast carcinoma
+  - MONDO:0000552   # breast lobular carcinoma
+lung:     # every term under lung neoplasm (MONDO:0021117) except lung sarcoma
+  - MONDO:0005061   # lung adenocarcinoma
+  - MONDO:0005097   # squamous cell lung carcinoma
+  - MONDO:0005233   # non-small cell lung carcinoma
+  - MONDO:0005454   # lung neuroendocrine neoplasm
+  - MONDO:0008433   # small cell lung carcinoma
+  - MONDO:0021117   # lung neoplasm
+  - MONDO:0004973   # adenosquamous lung carcinoma
+  - MONDO:0006041   # lung carcinoid tumor
+  - MONDO:0006049   # papillary lung adenocarcinoma
+  - MONDO:0006279   # lung sarcomatoid carcinoma
+pan: []

@@ -1,0 +1,7 @@
+biological-model-matching-benchmark
+Copyright 2026 Ingenix
+
+Licensed under the Apache License, Version 2.0; see LICENSE.
+
+This repository vendors MOBER (baseline-models/MOBER), Copyright (c) 2022 Novartis,
+distributed under the MIT License; see baseline-models/MOBER/LICENSE.

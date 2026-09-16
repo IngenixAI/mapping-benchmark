@@ -1,0 +1,57 @@
+  /* Shared by every generated page; inlined by build.py at the
+     template's theme marker. Page-specific tokens, widths and components stay in
+     the template's own <style>. */
+  :root {
+    color-scheme: light;
+    --surface-1: #fcfcfb;
+    --plane: #f9f9f7;
+    --ink: #0b0b0b;
+    --ink-2: #52514e;
+    --muted: #898781;
+    --rule: #e1e0d9;
+    --accent: #2a78d6;
+    --border: rgba(11, 11, 11, 0.10);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-1: #1a1a19;
+      --plane: #0d0d0d;
+      --ink: #ffffff;
+      --ink-2: #c3c2b7;
+      --rule: #2c2c2a;
+      --accent: #3987e5;
+      --border: rgba(255, 255, 255, 0.10);
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --surface-1: #1a1a19;
+    --plane: #0d0d0d;
+    --ink: #ffffff;
+    --ink-2: #c3c2b7;
+    --rule: #2c2c2a;
+    --accent: #3987e5;
+    --border: rgba(255, 255, 255, 0.10);
+  }
+  body { margin: 0; background: var(--plane); }
+  .viz-root {
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    color: var(--ink);
+    background: var(--plane);
+    margin: 0 auto;
+    padding: 24px 20px 64px;
+    max-width: 1280px;
+    line-height: 1.45;
+  }
+  h1 { font-size: 19px; margin: 0 0 4px; font-weight: 650; }
+  .sub { color: var(--ink-2); font-size: 13px; margin: 0 0 14px; }
+  .controls { display: flex; flex-wrap: wrap; gap: 14px 18px; align-items: flex-end; margin: 0 0 14px; }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field label { font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+  select, input, button {
+    font: inherit; font-size: 13px; padding: 5px 8px;
+    background: var(--surface-1); color: var(--ink);
+    border: 1px solid var(--border); border-radius: 6px;
+  }
+  button { cursor: pointer; }

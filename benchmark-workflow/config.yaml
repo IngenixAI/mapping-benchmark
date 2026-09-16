@@ -1,0 +1,57 @@
+# Benchmark configuration. Inputs are described in resources/datasets.yaml.
+
+# Models are fitted on these datasets only. Every other dataset is seen at projection
+# time, so retrieval into it measures how the embedding generalises to unseen data.
+training_datasets: [tcga, depmap]
+n_genes: 2000       # shared gene panel: most variable genes within the training datasets
+latent_dim: 64      # every method embeds into this many dimensions
+random_seed: 42
+
+# Axis 1 - ontology. A neighbour is worth the simGIC between its MONDO term and the
+# query's; the score is the mean over the k nearest neighbours (simGIC@k).
+ontology:
+  k: 10
+  pairs:
+    tcga_to_depmap:      {query: tcga,      database: depmap}
+    metaprism_to_depmap: {query: metaprism, database: depmap}
+    tcga_to_metaprism:   {query: tcga,      database: metaprism}
+    tcga_to_pdxe:        {query: tcga,      database: pdxe}
+
+# Axis 2 - mutation. A neighbour is worth the Jaccard overlap between its driver-gene
+# mutation set and the query's (Jaccard@k), scored within each cohort of
+# resources/mutation_cohorts.yaml.
+mutation:
+  k: 10
+  cohorts: [breast, lung, pan]
+  pairs:
+    tcga_to_depmap:      {query: tcga,      database: depmap}
+    metaprism_to_depmap: {query: metaprism, database: depmap}
+    tcga_to_metaprism:   {query: tcga,      database: metaprism}
+
+# Axis 3 - donor. A neighbour is worth 1 when it comes from the same patient (precision@k).
+donor:
+  k: 1
+  pairs:
+    aphrodite: {query: aphrodite_human, database: aphrodite_pdx}
+
+# Methods. `type` selects the training rules; every other key is passed to the method's
+# train command as a flag. latent_dim and random_seed above are passed to all of them.
+methods:
+  PCA:
+    type: pca
+  scVI:
+    type: scvi
+    n_layers: 1
+    n_hidden: 256
+    dropout_rate: 0.0
+    gene_likelihood: nb
+    max_epochs: 300
+    kl_warmup_epochs: 100
+  MOBER:
+    type: mober
+    batch_size: 1600
+    epochs: 3000
+    val_set_size: 0.1   # patience applies to this validation split
+    patience: 100
+    kl_weight: 1.0e-5
+    src_adv_weight: 0.01

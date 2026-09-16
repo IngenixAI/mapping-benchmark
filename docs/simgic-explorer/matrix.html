@@ -1,0 +1,329 @@
+<title>simGIC matrix, clustered</title>
+<style>
+__THEME__
+  /* One hue per magnitude scale, light to dark, redefined for the dark surface rather than
+     flipped: a ramp that reads as "more" on paper reads as "less" inverted. */
+  :root { --ramp-lo: #eaf1fb; --ramp-hi: #123f7c; }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) { --ramp-lo: #16202c; --ramp-hi: #7fb4f5; }
+  }
+  :root[data-theme="dark"] { --ramp-lo: #16202c; --ramp-hi: #7fb4f5; }
+
+  /* The window's own scrollbar appears when the matrix gets tall, which narrows the
+     viewport by ~15px *after* the cells were sized to it. Reserving the gutter keeps the
+     width a term can be measured against constant. */
+  html { scrollbar-gutter: stable; }
+  .sub { margin: 0 0 10px; max-width: 78ch; }
+  .controls { margin: 14px 0 10px; }
+  .seg { display: flex; gap: 6px; flex-wrap: wrap; }
+  button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+  /* The matrix is the page: no card, no side panel, nothing between it and the width of
+     the window. The legend is one strip above it instead of a column beside it. */
+  .viz-root { max-width: none; }
+  .plot { overflow: auto; height: 80vh; }
+  canvas { display: block; }
+  input[type="number"] { width: 84px; }
+  .legendrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+               margin: 0 0 8px; font-size: 12px; color: var(--ink-2); }
+  .bar { width: 200px; height: 10px; border-radius: 3px;
+         background: linear-gradient(to right, var(--lo), var(--hi)); }
+  .ends { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .muted { color: var(--muted); }
+  .tip {
+    position: fixed; pointer-events: none; z-index: 5; max-width: 300px;
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 7px;
+    padding: 6px 9px; font-size: 12px; box-shadow: 0 2px 10px rgba(0,0,0,.18);
+  }
+  .note { font-size: 12px; color: var(--muted); margin-top: 10px; }
+  code { font-size: 11.5px; }
+</style>
+
+<div class="viz-root">
+  <h1>simGIC matrix, clustered</h1>
+  <p class="sub">Every annotated term against every other: the simGIC the benchmark grades
+    a query-neighbour pair with.</p>
+  <p class="sub">Rows and columns are ordered by <b>average-linkage hierarchical clustering
+    on the matrix</b>, so similar terms fall into blocks. The diagonal is a term against
+    itself.</p>
+
+  <div class="controls">
+    <div class="field"><label>Ontology</label><span class="seg" id="onto"></span></div>
+    <div class="field"><label for="top">Terms</label>
+      <select id="top">
+        <option value="40">40 commonest</option>
+        <option value="80" selected>80 commonest</option>
+        <option value="150">150 commonest</option>
+        <option value="0">all annotated</option>
+      </select></div>
+    <div class="field"><label for="thr">Threshold</label>
+      <input id="thr" type="number" min="0" max="1" step="0.05" placeholder="none"></div>
+    <div class="field"><label for="cell">Cell size</label>
+      <select id="cell">
+        <option value="0" selected>fit</option>
+        <option value="20">20 px</option>
+        <option value="12">12 px</option>
+        <option value="7">7 px</option>
+        <option value="4">4 px</option>
+      </select></div>
+  </div>
+
+  <div class="legendrow" id="legend"></div>
+  <div class="plot" id="plot"><canvas id="cv"></canvas></div>
+  <p class="note" id="foot"></p>
+</div>
+
+<script>
+const DATA = __DATA__;
+const $ = id => document.getElementById(id);
+const LABEL_AT = 8;             // px per cell below which axis names stop fitting
+const TOP_PX = 150;             // vertical room for the rotated column names
+const LEFT_MAX = 340;           // the row names never need more than this
+
+let V = null, ITEMS = [], BASE = null, M = null, ORDER = [];
+
+// The matrix is square and the window is landscape, so height is what bounds the cells —
+// and the width left over is spent on the row names rather than wasted. The two gutters are
+// therefore not the same size: the columns pay in height (rotated text, kept short so it
+// does not eat the cells), the rows pay in width, of which there is plenty.
+function geom() {
+  const plot = $("plot"), n = ITEMS.length, fixed = +$("cell").value;
+  const height = plot.clientHeight - 8 - 2, width = plot.clientWidth - 8 - 2;
+  let size = fixed, top = TOP_PX;
+  if (!fixed) {
+    const named = Math.min((height - TOP_PX) / n, (width - 60) / n);
+    // Without names there is still a 6px margin on each axis to pay for.
+    size = Math.max(1.5, named >= LABEL_AT ? named : (Math.min(height, width) - 6) / n);
+    if (named < LABEL_AT) top = 6;
+  }
+  const showNames = size >= LABEL_AT && top > 6;
+  const left = showNames ? Math.max(60, Math.min(LEFT_MAX, width - n * size)) : 6;
+  return { n, size, top, left, showNames };
+}
+const cones = [];
+
+function cone(i) {
+  if (cones[i]) return cones[i];
+  const seen = new Set(), stack = [i];
+  while (stack.length) {
+    const j = stack.pop();
+    if (seen.has(j)) continue;
+    seen.add(j);
+    V.nodes[j].p.forEach(p => stack.push(p));
+  }
+  return (cones[i] = seen);
+}
+
+function ratio(a, b) {
+  let shared = 0, union = 0;
+  for (const i of a) {
+    const v = V.nodes[i].ic;
+    union += v;
+    if (b.has(i)) shared += v;
+  }
+  for (const i of b) if (!a.has(i)) union += V.nodes[i].ic;
+  return union ? Math.min(shared / union, 1) : 0;
+}
+
+// The matrix is computed once per term set.
+function base() {
+  const n = ITEMS.length;
+  const ic = new Float32Array(n * n);
+  for (let i = 0; i < n; i++) {
+    const a = cone(ITEMS[i]);
+    ic[i * n + i] = 1;
+    for (let j = i + 1; j < n; j++) ic[i * n + j] = ic[j * n + i] = ratio(a, cone(ITEMS[j]));
+  }
+  return ic;
+}
+
+// Average-linkage agglomerative clustering over the rows of the matrix on screen, the way a
+// clustermap does it: the distance between two terms is how differently they score against
+// everything else, not their score against each other — which is what puts a block together.
+function clusterOrder(m, n) {
+  const dist = new Float64Array(n * n);
+  for (let i = 0; i < n; i++)
+    for (let j = i + 1; j < n; j++) {
+      let sum = 0;
+      for (let k = 0; k < n; k++) {
+        const d = m[i * n + k] - m[j * n + k];
+        sum += d * d;
+      }
+      dist[i * n + j] = dist[j * n + i] = Math.sqrt(sum);
+    }
+  const active = [...Array(n).keys()].map(i => ({ size: 1, leaves: [i], id: i }));
+  const between = new Map();                       // "a,b" -> average linkage distance
+  const key = (a, b) => a < b ? a + "," + b : b + "," + a;
+  for (let i = 0; i < n; i++)
+    for (let j = i + 1; j < n; j++) between.set(key(i, j), dist[i * n + j]);
+  let next = n;
+  while (active.length > 1) {
+    let best = Infinity, bi = 0, bj = 1;
+    for (let i = 0; i < active.length; i++)
+      for (let j = i + 1; j < active.length; j++) {
+        const d = between.get(key(active[i].id, active[j].id));
+        if (d < best) { best = d; bi = i; bj = j; }
+      }
+    const left = active[bi], right = active[bj];
+    const merged = { size: left.size + right.size, leaves: left.leaves.concat(right.leaves),
+                     id: next++ };
+    active.splice(bj, 1);
+    active.splice(bi, 1);
+    for (const other of active) {
+      const d = (between.get(key(left.id, other.id)) * left.size +
+                 between.get(key(right.id, other.id)) * right.size) / merged.size;
+      between.set(key(merged.id, other.id), d);
+    }
+    active.push(merged);
+  }
+  return active[0].leaves;
+}
+
+const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const rgb = hex => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
+function ramp(lo, hi) {
+  const a = rgb(lo), b = rgb(hi);
+  return t => `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * t)).join(",")})`;
+}
+
+function draw(again) {
+  const { n, size, top, left, showNames } = geom(), m = M;
+  const names = ORDER.map(i => V.nodes[ITEMS[i]].name);
+  const cv = $("cv"), dpr = window.devicePixelRatio || 1;
+  const width = left + n * size + 8, height = top + n * size + 8;
+  cv.width = width * dpr;
+  cv.height = height * dpr;
+  cv.style.width = width + "px";
+  cv.style.height = height + "px";
+  const ctx = cv.getContext("2d");
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, width, height);
+
+  const paint = ramp(css("--ramp-lo"), css("--ramp-hi"));
+  // Scaled to the largest off-diagonal value, not to 1: simGIC over real labels lives near
+  // the bottom of its range, and a [0,1] ramp would draw the whole matrix as one pale wash.
+  let peak = 0;
+  for (let i = 0; i < n; i++)
+    for (let j = 0; j < n; j++) if (i !== j) peak = Math.max(peak, m[ORDER[i] * n + ORDER[j]]);
+  peak = peak || 1;
+
+  // A cut on the value being shown, drawn rather than filtered: the cells that pass keep
+  // their colour and gain a white outline, so you can see where the threshold falls inside
+  // the blocks instead of losing everything it excludes.
+  const cut = $("thr").value === "" ? null : +$("thr").value;
+  let passed = 0;
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = "#fff";
+  for (let i = 0; i < n; i++)
+    for (let j = 0; j < n; j++) {
+      const v = i === j ? 1 : m[ORDER[i] * n + ORDER[j]];
+      const x = left + j * size, y = top + i * size, box = size - (size > 6 ? 1 : 0);
+      ctx.fillStyle = paint(Math.min(v / peak, 1));
+      ctx.fillRect(x, y, box, box);
+      if (cut === null || i === j || v < cut) continue;
+      passed++;
+      if (size >= 3) ctx.strokeRect(x + 0.5, y + 0.5, box - 1, box - 1);
+    }
+
+  if (showNames) {
+    ctx.fillStyle = css("--ink-2");
+    ctx.font = "11px system-ui, sans-serif";
+    ctx.textBaseline = "middle";
+    for (let i = 0; i < n; i++) {
+      ctx.textAlign = "right";
+      ctx.fillText(clip(ctx, names[i], left - 8), left - 6, top + i * size + size / 2);
+      ctx.save();                    // the same name up the column, clipped to less room
+      ctx.translate(left + i * size + size / 2, top - 6);
+      ctx.rotate(-Math.PI / 2);
+      ctx.textAlign = "left";
+      ctx.fillText(clip(ctx, names[i], top - 8), 0, 0);
+      ctx.restore();
+    }
+  }
+  $("foot").textContent =
+    `${n} terms, ${n * n} cells, ordered by average linkage on this matrix. ` +
+    `Shading runs 0 to ${peak.toFixed(3)}, the largest off-diagonal value here` +
+    (showNames ? "." : "; names appear at 8 px cells and larger.") +
+    (cut === null ? "" :
+      ` ${passed} off-diagonal cells (${(100 * passed / (n * n - n)).toFixed(1)}%, ` +
+      `${passed / 2} pairs) reach ${cut} and are outlined in white` +
+      (size < 3 ? ", though the cells are too small to outline at this size." : "."));
+  legend(peak);
+  // Whatever the browser does about scrollbar gutters, the rule is that fitting must
+  // actually fit: measure the result once and redraw if it did not.
+  const plot = $("plot");
+  if (!again && !+$("cell").value &&
+      (plot.scrollWidth > plot.clientWidth || plot.scrollHeight > plot.clientHeight)) draw(true);
+}
+
+function clip(ctx, text, width) {
+  if (ctx.measureText(text).width <= width) return text;
+  let cut = text;
+  while (cut.length > 1 && ctx.measureText(cut + "…").width > width) cut = cut.slice(0, -1);
+  return cut + "…";
+}
+
+function legend(peak) {
+  $("legend").innerHTML =
+    `<b>simGIC</b><span class="ends">0</span>` +
+    `<span class="bar" style="--lo:var(--ramp-lo);--hi:var(--ramp-hi)"></span>` +
+    `<span class="ends">${peak.toFixed(3)}</span>` +
+    `<span class="muted">hover a cell for both names and the value</span>`;
+}
+
+function rebuild() {
+  M = BASE = base();
+  ORDER = clusterOrder(M, ITEMS.length);
+  draw();
+}
+
+function pickTerms() {
+  const top = +$("top").value;
+  const annotated = V.nodes.map((n, i) => i).filter(i => V.nodes[i].annotated);
+  annotated.sort((i, j) => V.nodes[j].n - V.nodes[i].n);
+  ITEMS = top ? annotated.slice(0, top) : annotated;
+  ITEMS.sort((i, j) => V.nodes[i].name.localeCompare(V.nodes[j].name));
+  rebuild();
+}
+
+function selectAxis(key) {
+  V = DATA.views[key];
+  cones.length = 0;
+  for (const b of $("onto").children) b.setAttribute("aria-pressed", String(b.dataset.k === key));
+  pickTerms();
+}
+
+// --- hover -------------------------------------------------------------------
+const tip = document.createElement("div");
+tip.className = "tip";
+tip.style.display = "none";
+document.body.appendChild(tip);
+
+$("cv").addEventListener("mousemove", e => {
+  const { n, size, top, left } = geom();
+  const box = $("cv").getBoundingClientRect();
+  const j = Math.floor((e.clientX - box.left - left) / size);
+  const i = Math.floor((e.clientY - box.top - top) / size);
+  if (i < 0 || j < 0 || i >= n || j >= n) { tip.style.display = "none"; return; }
+  const a = ORDER[i] * n + ORDER[j], A = V.nodes[ITEMS[ORDER[i]]], B = V.nodes[ITEMS[ORDER[j]]];
+  tip.innerHTML = `<b>${A.name}</b><br><b>${B.name}</b><br>` +
+    `<span class="muted">simGIC ${BASE[a].toFixed(3)}</span>`;
+  tip.style.display = "";
+  tip.style.left = Math.min(e.clientX + 14, innerWidth - 320) + "px";
+  tip.style.top = Math.min(e.clientY + 14, innerHeight - 90) + "px";
+});
+$("cv").addEventListener("mouseleave", () => { tip.style.display = "none"; });
+
+$("onto").onclick = e => {
+  const b = e.target.closest("button");
+  if (b) selectAxis(b.dataset.k);
+};
+$("top").onchange = pickTerms;
+$("cell").onchange = draw;
+$("thr").oninput = () => draw();
+addEventListener("resize", draw);
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", draw);
+
+$("onto").innerHTML = Object.entries(DATA.views)
+  .map(([k, v]) => `<button data-k="${k}">${v.label}</button>`).join("");
+selectAxis(Object.keys(DATA.views)[0]);
+</script>
