@@ -8,6 +8,9 @@
 *.png
 data/
 
+# The README's figures are part of the repository.
+!docs/images/*.png
+
 .DS_Store
 .snakemake/
 results/
