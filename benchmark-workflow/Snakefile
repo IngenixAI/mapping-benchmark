@@ -4,7 +4,8 @@ Every method embeds all samples into one space. For each query sample the k near
 database samples are retrieved and graded on one of three axes:
 
     ontology   simGIC between the query's and the neighbour's MONDO term   (simGIC@k)
-    mutation   Jaccard overlap of driver-gene mutation sets, per cohort    (Jaccard@k)
+    mutation   per disease and alteration: do mutant queries' neighbours
+               carry the alteration more often than wild-type queries'?     (AUROC@k)
     donor      1 when the neighbour is the query's own patient's PDX        (precision@k)
 
 Each axis also scores two bounds from the labels alone, Random and Oracle, so that every
@@ -16,7 +17,7 @@ Usage:
 Results:
     results/models/{method}/          latents.npy, latents.csv and the fitted model
     results/ontology/{pair}/          one JSON per method and bound
-    results/mutation/{pair}/{cohort}/ one JSON per method and bound
+    results/mutation/                 common labels, scores, counts, report and manifest
     results/donor/{pair}/             one JSON per method and bound
     results/summary.csv, .md, .pdf    every score in one table and one figure
 """
@@ -24,7 +25,7 @@ Results:
 import re
 from pathlib import Path
 
-from mapping_benchmark.datasets import load_spec
+from mapping_benchmark.mutation_tasks import load_tasks
 
 configfile: "benchmark-workflow/config.yaml"
 
@@ -34,12 +35,9 @@ RESOURCES = "benchmark-workflow/resources"
 
 # --- Data ----------------------------------------------------------------------------
 
-SPEC = load_spec(f"{WORKSPACE}/{RESOURCES}/datasets.yaml")
 RAW = "data/raw/expression.h5ad"
-METADATA = "data/raw/metadata.csv"
+EXPRESSION_SAMPLES = "data/raw/expression_samples.csv"
 ONTOLOGY = "data/raw/mondo.parquet"
-MUTATIONS = {name: f"data/raw/mutations/{name}.parquet"
-             for name, d in SPEC.datasets.items() if d.mutations}
 GENES = "data/processed/selected_genes.csv"
 # Every sample on the gene panel, and the training subset, each in TPM and log1p(TPM).
 PREPARED = "data/processed/{subset}{transform}.h5ad"
@@ -52,13 +50,13 @@ AXES = {
     "donor": dict(config["donor"], relevance="binary", label_column="donor_id"),
 }
 MUTATION = config["mutation"]
-COHORTS = f"{RESOURCES}/mutation_cohorts.yaml"
-PANEL = "results/mutation/panel_genes.yaml"
-EXCLUDED = "results/mutation/excluded_queries.yaml"
-
-for name, pair in MUTATION["pairs"].items():
-    missing = {pair["query"], pair["database"]} - set(MUTATIONS)
-    assert not missing, f"mutation pair {name} uses {missing}, which have no mutation matrix"
+MUTATION_SOURCES = f"{RESOURCES}/mutation_sources.yaml"
+MUTATION_TASKS = MUTATION["tasks"]
+TASKS = load_tasks(MUTATION_TASKS)
+MUTATION_RESULT = "results/mutation/results.json"
+MUTATION_ARTIFACTS = [f"results/mutation/{name}" for name in (
+    "results.json", "report.html", "explorer.html", "scores.csv", "counts.csv", "manifest.json",
+    "sample_labels.csv", "variant_evidence.csv")]
 
 # --- Methods and bounds ---------------------------------------------------------------
 
@@ -86,14 +84,14 @@ def any_of(names) -> str:
 def source(method: str) -> str:
     """What an evaluation reads: a bound needs labels only, a method its latents too."""
     if method in BOUNDS:
-        return f"--bound {BOUNDS[method]} --metadata {WORKSPACE}/{METADATA}"
+        return f"--bound {BOUNDS[method]} --samples {WORKSPACE}/{EXPRESSION_SAMPLES}"
     return (f"--latents {WORKSPACE}/results/models/{method}/latents.npy "
-            f"--metadata {WORKSPACE}/results/models/{method}/latents.csv")
+            f"--samples {WORKSPACE}/results/models/{method}/latents.csv")
 
 
 def source_inputs(method: str) -> list[str]:
     if method in BOUNDS:
-        return [METADATA]
+        return [EXPRESSION_SAMPLES]
     return [f"results/models/{method}/latents.npy", f"results/models/{method}/latents.csv"]
 
 
@@ -101,20 +99,22 @@ def source_inputs(method: str) -> list[str]:
 # Target
 # =====================================================================================
 
-RESULTS = (
-    [f"results/{axis}/{pair}/{m}.json"
-     for axis, cfg in AXES.items() for pair in cfg["pairs"] for m in SCORED]
-    + [f"results/mutation/{pair}/{cohort}/{m}.json"
-       for pair in MUTATION["pairs"] for cohort in MUTATION["cohorts"] for m in SCORED]
-)
+RESULTS = ([f"results/{axis}/{pair}/{m}.json"
+            for axis, cfg in AXES.items() for pair in cfg["pairs"] for m in SCORED]
+           + [MUTATION_RESULT])
+MUTATION_CANCER_FIGURES = [f"results/mutation/{disease}/summary.{ext}"
+                          for disease in TASKS.diseases for ext in ("pdf", "png")]
 
 
 rule all:
     input:
         RESULTS,
+        MUTATION_ARTIFACTS,
+        MUTATION_CANCER_FIGURES,
         "results/summary.csv",
         "results/summary.md",
         "results/summary.pdf",
+        "results/summary_mutation.pdf",
 
 
 # =====================================================================================
@@ -127,9 +127,8 @@ rule download_data:
         spec=f"{RESOURCES}/datasets.yaml",
     output:
         expression=RAW,
-        metadata=METADATA,
+        samples=EXPRESSION_SAMPLES,
         ontology=ONTOLOGY,
-        mutations=list(MUTATIONS.values()),
     log:
         "logs/download_data.log",
     shell:
@@ -137,9 +136,8 @@ rule download_data:
         uv run python {SCRIPTS}/export_datasets.py \
             --spec {input.spec} \
             --expression {output.expression} \
-            --metadata {output.metadata} \
+            --expression-samples {output.samples} \
             --ontology {output.ontology} \
-            --mutation-dir data/raw/mutations \
             2>&1 | tee {log}
         """
 
@@ -262,7 +260,7 @@ rule project_scvi:
         data="data/processed/expression.h5ad",
     output:
         latents="results/models/{method}/latents.npy",
-        metadata="results/models/{method}/latents.csv",
+        samples="results/models/{method}/latents.csv",
     wildcard_constraints:
         method=methods_of("scvi"),
     log:
@@ -273,7 +271,7 @@ rule project_scvi:
             --model-dir {WORKSPACE}/results/models/{wildcards.method}/model \
             --data-file {WORKSPACE}/{input.data} \
             --output-latents {WORKSPACE}/{output.latents} \
-            --output-metadata {WORKSPACE}/{output.metadata} \
+            --output-metadata {WORKSPACE}/{output.samples} \
             2>&1 | tee {WORKSPACE}/{log}
         """
 
@@ -362,61 +360,42 @@ rule evaluate:
 # Axis 2: mutation
 # =====================================================================================
 
-rule mutation_panel:
+rule mutation_benchmark:
+    """Common mutation workflow for every declared disease, pair and method."""
     input:
-        mutations=list(MUTATIONS.values()),
-        metadata=METADATA,
+        samples=EXPRESSION_SAMPLES,
+        sources=MUTATION_SOURCES,
+        tasks=MUTATION_TASKS,
+        implementation=[f"{SCRIPTS}/run_mutation_benchmark.py",
+                        "src/mapping_benchmark/mutation_tasks.py",
+                        "src/mapping_benchmark/mutation_labels.py",
+                        "src/mapping_benchmark/mutation.py",
+                        "src/mapping_benchmark/mutation_report.py",
+                        "src/mapping_benchmark/mutation_visualization.py",
+                        "src/mapping_benchmark/templates/mutation_explorer.html",
+                        "src/mapping_benchmark/alterations.py",
+                        "src/mapping_benchmark/retrieval.py"],
+        embeddings=[f"results/models/{m}/{file}" for m in METHODS
+                    for file in ("latents.npy", "latents.csv")],
     output:
-        panel=PANEL,
-        excluded=EXCLUDED,
+        report="results/mutation/report.html",
+        explorer="results/mutation/explorer.html",
+        scores="results/mutation/scores.csv",
+        counts="results/mutation/counts.csv",
+        results="results/mutation/results.json",
+        manifest="results/mutation/manifest.json",
+        labels="results/mutation/sample_labels.csv",
+        evidence="results/mutation/variant_evidence.csv",
     params:
-        datasets=",".join(sorted({d for p in MUTATION["pairs"].values() for d in p.values()})),
-        queries=",".join(sorted({p["query"] for p in MUTATION["pairs"].values()})),
+        methods=",".join(METHODS),
     log:
-        "logs/mutation_panel.log",
+        "logs/mutation_benchmark.log",
     shell:
         """
-        uv run python {SCRIPTS}/mutation_panel.py \
-            --mutation-dir data/raw/mutations \
-            --datasets {params.datasets} --query-datasets {params.queries} \
-            --metadata {input.metadata} \
-            --panel-out {output.panel} --excluded-out {output.excluded} \
-            2>&1 | tee {log}
-        """
-
-
-rule evaluate_mutation:
-    """Score one method or bound on one pair and cohort."""
-    input:
-        lambda wc: source_inputs(wc.method),
-        query=lambda wc: MUTATIONS[MUTATION["pairs"][wc.pair]["query"]],
-        database=lambda wc: MUTATIONS[MUTATION["pairs"][wc.pair]["database"]],
-        panel=PANEL,
-        cohorts=COHORTS,
-        ontology=ONTOLOGY,
-    output:
-        "results/mutation/{pair}/{cohort}/{method}.json",
-    wildcard_constraints:
-        pair=any_of(MUTATION["pairs"]),
-        cohort=any_of(MUTATION["cohorts"]),
-        method=any_of(SCORED),
-    params:
-        source=lambda wc: source(wc.method),
-        query=lambda wc: MUTATION["pairs"][wc.pair]["query"],
-        database=lambda wc: MUTATION["pairs"][wc.pair]["database"],
-        k=MUTATION["k"],
-    log:
-        "logs/evaluate_mutation_{pair}_{cohort}_{method}.log",
-    shell:
-        """
-        uv run python {SCRIPTS}/evaluate_mutations.py \
-            {params.source} \
-            --query-dataset {params.query} --database-dataset {params.database} \
-            --query-mutations {input.query} --database-mutations {input.database} \
-            --panel {input.panel} --cohorts {input.cohorts} --cohort {wildcards.cohort} \
-            --label-column mondo_id --ontology {input.ontology} --k {params.k} \
-            --output {output} \
-            2>&1 | tee {log}
+        uv run python {SCRIPTS}/run_mutation_benchmark.py \
+            --expression-samples {input.samples:q} --sources {input.sources:q} \
+            --tasks {input.tasks:q} --methods {params.methods:q} \
+            --output results/mutation 2>&1 | tee {log:q}
         """
 
 
@@ -435,21 +414,28 @@ rule summarize:
     shell:
         """
         uv run python {SCRIPTS}/summarize.py \
-            --results-dir results --csv {output.csv} --markdown {output.md} \
+            --results-dir results --inputs {input:q} \
+            --csv {output.csv} --markdown {output.md} \
             2>&1 | tee {log}
         """
 
 
 rule plot_summary:
     input:
-        "results/summary.csv",
+        summary="results/summary.csv",
+        implementation=[f"{SCRIPTS}/plot_summary.py",
+                        "src/mapping_benchmark/mutation_visualization.py"],
     output:
         "results/summary.pdf",
         "results/summary.png",
+        "results/summary_mutation.pdf",
+        "results/summary_mutation.png",
+        cancers=MUTATION_CANCER_FIGURES,
     log:
         "logs/plot_summary.log",
     shell:
         """
-        uv run python {SCRIPTS}/plot_summary.py --summary {input} --output {output[0]} \
+        uv run python {SCRIPTS}/plot_summary.py --summary {input.summary:q} --output {output[0]} \
+            --mutation-output {output[2]} --mutation-cancer-dir results/mutation \
             2>&1 | tee {log}
         """

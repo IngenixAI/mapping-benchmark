@@ -145,14 +145,15 @@ def render(template: Path, out: Path, data: dict) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ontology", type=Path, default=Path("data/raw/mondo.parquet"))
-    parser.add_argument("--metadata", type=Path, default=Path("data/raw/metadata.csv"))
+    parser.add_argument("--expression-samples", type=Path,
+                        default=Path("data/raw/expression_samples.csv"))
     parser.add_argument("--label-column", default="mondo_id")
     parser.add_argument("--out", type=Path, default=HERE / "simgic_explorer.html")
     parser.add_argument("--matrix-out", type=Path, default=HERE / "simgic_matrix.html")
     args = parser.parse_args()
 
     onto = load(args.ontology)
-    labels = pd.read_csv(args.metadata, index_col=0, dtype=str, keep_default_na=False)
+    labels = pd.read_csv(args.expression_samples, index_col=0, dtype=str, keep_default_na=False)
     counts = labels.loc[labels[args.label_column] != "", args.label_column].value_counts()
     counts = counts[[t in onto for t in counts.index]]
     page = view(onto, counts)

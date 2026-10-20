@@ -14,29 +14,18 @@ ontology:
   sample_id: ontology_disease_matched_id
   sample_name: ontology_disease_matched_name
 
-# Somatic mutations, as three long tables covering every dataset that has them. The
-# exporter turns them into one binary sample-by-gene matrix per dataset
-# (data/raw/mutations/<dataset>.parquet); the dataset card documents the tables.
-mutations:
-  mutated_genes: mutations/mutated_genes.parquet       # dataset, sample_id, gene_id_ensembl
-  assayed_samples: mutations/assayed_samples.parquet   # dataset, sample_id
-  assayed_genes: mutations/assayed_genes.parquet       # dataset, gene_id_ensembl
-
 # One entry per benchmark dataset.
 #   expression  the h5ad in the repository (TPM, 19,260 genes)
 #   keep        only rows whose obs column holds this value are kept
 #   exclude     sample ids dropped after that
-#   mutations   true for the datasets present in the mutation tables above
 # How the paired human/PDX study is split into two datasets is derived from its own obs
 # columns: see DERIVED in src/mapping_benchmark/datasets.py.
 datasets:
   tcga:
     expression: tcga_tpm.h5ad
     keep: {condition: Tumor}   # the file also carries 740 adjacent-normal samples
-    mutations: true
   depmap:
     expression: depmap_tpm.h5ad
-    mutations: true
     # Pediatric or infant lines, and lines whose annotation does not match the cell line.
     exclude:
       - CVCL_0027   # HepG2, hepatoblastoma, pediatric
@@ -54,7 +43,6 @@ datasets:
       - CVCL_0378   # KNS-42, pediatric glioblastoma
   metaprism:
     expression: metaprism_tpm.h5ad
-    mutations: true
   pdxe:
     expression: pdxe_tpm.h5ad
   # One study, two datasets: the patients' tumours and the xenografts grown from them.

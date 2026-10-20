@@ -1,0 +1,248 @@
+# Common specification for LUAD, COAD, SKCM, BRCA and subsequent cancer types.
+# Shared settings -> reusable biomarker definitions -> analyses grouped by disease.
+# Defaults: protein-altering-free controls, exclude known homozygous deletions.
+# LUAD explicitly retains its positive MSI screen exclusion.
+# MSS strata require explicit negative MSI evidence; missing evidence stays unknown.
+schema_version: 1
+k: [1, 5, 10]
+primary_k: 10
+bootstrap: 1000
+permutations: 1000
+seed: 0
+eligibility:
+  mutant_queries: 10
+  wildtype_queries: 10
+  mutant_pool: 10
+  wildtype_pool: 10
+msi:
+  mantis_threshold: 0.4
+  sensor_threshold: 3.5
+
+pairs:
+  tcga_to_depmap: {query: tcga, database: depmap}
+  metaprism_to_depmap: {query: metaprism, database: depmap}
+  tcga_to_metaprism: {query: tcga, database: metaprism}
+
+# The genes, and the specific alterations in each, that the mutation axis scores. Each
+# entry labels every sample mutant (1), control (0) or unknown; a disease's analyses
+# below refer to these by name. MSI is built in and needs no entry.
+biomarkers:
+  BRAF_V600E:
+    gene: BRAF
+    ensembl: ENSG00000157764
+    classes: [hotspot]
+    hotspots:
+      changes: [V600E]
+    note: Exact V600E; other protein-altering BRAF variants are withheld from controls.
+  BRAF_V600_K601:
+    gene: BRAF
+    ensembl: ENSG00000157764
+    classes: [hotspot]
+    controls: protein_altering_free
+    exclude_deletions: true
+    hotspots:
+      codons: [V600, K601]
+    note: Melanoma V600/K601 missense hotspots; other protein-altering BRAF variants are withheld.
+  NRAS_hotspot:
+    gene: NRAS
+    ensembl: ENSG00000213281
+    classes: [hotspot]
+    controls: protein_altering_free
+    exclude_deletions: true
+    hotspots:
+      codons: [G12, G13, Q61]
+    note: Selected NRAS missense residues; other protein-altering NRAS variants are withheld.
+  NF1_nonsilent:
+    gene: NF1
+    ensembl: ENSG00000196712
+    classes: [nonsilent]
+    controls: protein_altering_free
+    exclude_deletions: true
+    note: Exploratory protein-altering mutation status; does not establish functional NF1 loss or the separate NF1 molecular subtype.
+  KRAS_hotspot:
+    gene: KRAS
+    ensembl: ENSG00000133703
+    classes: [hotspot]
+    hotspots:
+      codons: [G12, G13, Q61, K117, A146]
+    note: Selected residues; other protein-altering KRAS variants are withheld.
+  PIK3CA_hotspot:
+    gene: PIK3CA
+    ensembl: ENSG00000121879
+    classes: [hotspot]
+    hotspots:
+      changes: [E542K, E545K, H1047R, H1047L]
+    note: Four conservative recurrent substitutions; other protein-altering PIK3CA variants are withheld.
+  PIK3CA_hotspot_extended:
+    gene: PIK3CA
+    ensembl: ENSG00000121879
+    classes: [hotspot]
+    hotspots:
+      changes: [C420R, E542K, E545A, E545D, E545G, E545K, Q546E, Q546R, H1047L, H1047R, H1047Y]
+    note: Breast sensitivity analysis of eleven selected protein substitutions; not an implementation of the diagnostic DNA assay.
+  TP53_nonsilent:
+    gene: TP53
+    ensembl: ENSG00000141510
+    classes: [nonsilent]
+    controls: mutation_free
+    note: Exploratory protein-altering TP53 mutation status; controls have no TP53 call. Does not establish functional or biallelic loss.
+  PTEN_nonsilent:
+    gene: PTEN
+    ensembl: ENSG00000171862
+    classes: [nonsilent]
+    note: Exploratory protein-altering PTEN mutation status; does not establish PTEN deficiency.
+  ARID1A_nonsilent:
+    gene: ARID1A
+    ensembl: ENSG00000117713
+    classes: [nonsilent]
+    note: Exploratory protein-altering ARID1A mutation status; may include passengers and does not establish functional loss.
+  KMT2C_nonsilent:
+    gene: KMT2C
+    ensembl: ENSG00000055609
+    classes: [nonsilent]
+    note: Exploratory protein-altering KMT2C mutation status; may include passengers and does not establish functional loss.
+  APC_truncating:
+    gene: APC
+    ensembl: ENSG00000134982
+    classes: [lof]
+    note: Exploratory sequence truncation, essential splice-site, start loss or stop loss.
+  TP53_selected:
+    gene: TP53
+    ensembl: ENSG00000141510
+    classes: [lof, hotspot]
+    hotspots:
+      changes: [R175H, G245S, R248Q, R248W, R249S, R273C, R273H, R282W]
+    note: Exploratory truncations plus selected missense; controls have no TP53 call.
+    controls: mutation_free
+  EGFR_hotspot:
+    gene: EGFR
+    ensembl: ENSG00000146648
+    classes: [hotspot]
+    exclude_deletions: false
+    hotspots:
+      changes: [L858R, L861Q, S768I, T790M]
+      codons: [G719]
+      deletions: [[709, 710], [729, 761]]
+      insertions: [[762, 823]]
+  TP53_lof:
+    gene: TP53
+    ensembl: ENSG00000141510
+    classes: [lof]
+    controls: mutation_free
+    exclude_deletions: true
+  STK11_lof:
+    gene: STK11
+    ensembl: ENSG00000118046
+    classes: [lof]
+    exclude_deletions: true
+  KEAP1_nonsilent:
+    gene: KEAP1
+    ensembl: ENSG00000079999
+    classes: [nonsilent]
+    exclude_deletions: true
+  BRAF_hotspot:
+    gene: BRAF
+    ensembl: ENSG00000157764
+    classes: [hotspot]
+    exclude_deletions: false
+    hotspots:
+      codons: [V600, K601, L597, G464, G469, G466, D594, N581, G596]
+  PIK3CA_hotspot_broad:
+    gene: PIK3CA
+    ensembl: ENSG00000121879
+    classes: [hotspot]
+    exclude_deletions: false
+    hotspots:
+      codons: [E542, E545, Q546, H1047, N345, C420, E726, G1049, M1043]
+  NF1_lof:
+    gene: NF1
+    ensembl: ENSG00000196712
+    classes: [lof]
+    exclude_deletions: true
+  SMARCA4_lof:
+    gene: SMARCA4
+    ensembl: ENSG00000127616
+    classes: [lof]
+    exclude_deletions: true
+  RBM10_lof:
+    gene: RBM10
+    ensembl: ENSG00000182872
+    classes: [lof]
+    exclude_deletions: true
+  ARID1A_lof:
+    gene: ARID1A
+    ensembl: ENSG00000117713
+    classes: [lof]
+    exclude_deletions: true
+  SETD2_lof:
+    gene: SETD2
+    ensembl: ENSG00000181555
+    classes: [lof]
+    exclude_deletions: true
+  RB1_lof:
+    gene: RB1
+    ensembl: ENSG00000139687
+    classes: [lof]
+    exclude_deletions: true
+  ATM_lof:
+    gene: ATM
+    ensembl: ENSG00000149311
+    classes: [lof]
+    exclude_deletions: true
+
+diseases:
+  LUAD:
+    oncotree: [LUAD]
+    exclude_msi_positive: true
+    analyses:
+      KRAS: {biomarker: KRAS_hotspot, tier: primary}
+      EGFR: {biomarker: EGFR_hotspot, tier: primary}
+      TP53: {biomarker: TP53_lof, tier: primary}
+      STK11: {biomarker: STK11_lof, tier: primary}
+      KEAP1: {biomarker: KEAP1_nonsilent, tier: primary}
+      BRAF: {biomarker: BRAF_hotspot, tier: primary}
+      PIK3CA: {biomarker: PIK3CA_hotspot_broad, tier: primary}
+      NF1: {biomarker: NF1_lof, tier: primary}
+      SMARCA4: {biomarker: SMARCA4_lof, tier: primary}
+      RBM10: {biomarker: RBM10_lof, tier: primary}
+      ARID1A: {biomarker: ARID1A_lof, tier: primary}
+      SETD2: {biomarker: SETD2_lof, tier: primary}
+      RB1: {biomarker: RB1_lof, tier: primary}
+      ATM: {biomarker: ATM_lof, tier: primary}
+  COAD:
+    oncotree: [COAD]
+    analyses:
+      MSI: {biomarker: MSI, tier: primary}
+      KRAS_MSS: {biomarker: KRAS_hotspot, stratum: MSS, tier: primary}
+      BRAF_V600E: {biomarker: BRAF_V600E, tier: primary}
+      PIK3CA: {biomarker: PIK3CA_hotspot, tier: exploratory}
+      APC: {biomarker: APC_truncating, tier: exploratory}
+      TP53: {biomarker: TP53_selected, tier: exploratory}
+      MSI_MANTIS_sensitivity: {biomarker: MSI, tier: sensitivity, query_mantis_only: true}
+  SKCM:
+    # Generic MEL model codes are included; known acral and uveal codes are excluded.
+    oncotree: [SKCM, MEL]
+    analyses:
+      BRAF: {biomarker: BRAF_V600_K601, tier: primary}
+      NRAS: {biomarker: NRAS_hotspot, tier: primary}
+      NF1: {biomarker: NF1_nonsilent, tier: exploratory}
+  BRCA:
+    # Invasive BRCA descendants, metaplastic descendants and inflammatory carcinoma.
+    # In situ, benign and breast sarcoma codes are excluded.
+    oncotree: [BRCA, IBC, MBC, ILC, CSNOS, SPC, IMMC, BRCANOS, BRSRCC, IDC, MDLC, BRCNOS, ACBC,
+               MMBC, EMBC, COM, MCS, CCHM, MASCC, MSCC, MASC]
+    analyses:
+      PIK3CA_core: {biomarker: PIK3CA_hotspot, tier: primary}
+      TP53_lof: {biomarker: TP53_lof, tier: primary}
+      PIK3CA_extended: {biomarker: PIK3CA_hotspot_extended, tier: sensitivity}
+      TP53_selected: {biomarker: TP53_selected, tier: exploratory}
+      TP53_nonsilent: {biomarker: TP53_nonsilent, tier: exploratory}
+      PTEN_nonsilent: {biomarker: PTEN_nonsilent, tier: exploratory}
+      ARID1A_nonsilent: {biomarker: ARID1A_nonsilent, tier: exploratory}
+      KMT2C_nonsilent: {biomarker: KMT2C_nonsilent, tier: exploratory}
+
+depmap_oncotree:
+  CVCL_1483: LUAD
+  CVCL_E062: LUAD
+  CVCL_1640: null
+  CVCL_V622: null

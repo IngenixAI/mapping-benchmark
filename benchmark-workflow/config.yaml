@@ -17,16 +17,11 @@ ontology:
     tcga_to_metaprism:   {query: tcga,      database: metaprism}
     tcga_to_pdxe:        {query: tcga,      database: pdxe}
 
-# Axis 2 - mutation. A neighbour is worth the Jaccard overlap between its driver-gene
-# mutation set and the query's (Jaccard@k), scored within each cohort of
-# resources/mutation_cohorts.yaml.
+# Axis 2 - mutation. Per disease and alteration, AUROC@k of how often mutant and
+# wild-type queries retrieve mutant neighbours. Diseases, alterations, pairs and scoring
+# settings live in the task file.
 mutation:
-  k: 10
-  cohorts: [breast, lung, pan]
-  pairs:
-    tcga_to_depmap:      {query: tcga,      database: depmap}
-    metaprism_to_depmap: {query: metaprism, database: depmap}
-    tcga_to_metaprism:   {query: tcga,      database: metaprism}
+  tasks: benchmark-workflow/resources/mutation_tasks.yaml
 
 # Axis 3 - donor. A neighbour is worth 1 when it comes from the same patient (precision@k).
 donor:
