@@ -179,9 +179,9 @@ carry their own terms of use; see the dataset card.
 The mutation axis reads the somatic calls and clinical annotations of TCGA, DepMap and
 MetaPRISM, and MetaPRISM's
 [full somatic mutation table](https://github.com/gustaveroussy/MetaPRISM_Public/blob/master/data/README.md)
-(Data Table 3). Every source is pinned to a revision or a SHA-256 in
-[resources/mutation_sources.yaml](benchmark-workflow/resources/mutation_sources.yaml); the
-HuggingFace repositories among them are private and need read access (`HF_TOKEN`).
+(Data Table 3). The calls and annotations are on the same HuggingFace dataset, cut to what
+the benchmark reads. Every source is pinned to a revision or a SHA-256 in
+[resources/mutation_sources.yaml](benchmark-workflow/resources/mutation_sources.yaml).
 
 ## Running the benchmark
 

@@ -1,6 +1,6 @@
 # Every input of the benchmark comes from one HuggingFace dataset, pinned to a revision.
 hf_repo: ingenix/mapping_benchmark
-hf_revision: e5d400201b37eeadc1879af354f37c6ad4c6f600
+hf_revision: d24ef23ce2806acd65984139a623c7edf4272797
 
 # The MONDO disease graph, exported to data/raw/mondo.parquet with the columns id, name and
 # parents. `id`, `name` and `parents` are the table's own columns; `sample_id` and
