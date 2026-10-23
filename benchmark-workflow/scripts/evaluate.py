@@ -16,17 +16,18 @@ from mapping_benchmark import ontology
 from mapping_benchmark.retrieval import Pool, Relevance, evaluate
 
 
-def load_pools(metadata: pd.DataFrame, latents: np.ndarray | None, query: str,
-               database: str, label_column: str) -> tuple[Pool, Pool]:
+def load_pools(
+    samples: pd.DataFrame, latents: np.ndarray | None, query: str, database: str, label_column: str
+) -> tuple[Pool, Pool]:
     """The two sides of a pair. Without latents the features are zero-width."""
     if latents is None:
-        latents = np.empty((len(metadata), 0))
-    if len(latents) != len(metadata):
-        raise ValueError(f"{len(latents)} latents but {len(metadata)} metadata rows")
-    labels = metadata[label_column].fillna("").astype(str).to_numpy()
+        latents = np.empty((len(samples), 0))
+    if len(latents) != len(samples):
+        raise ValueError(f"{len(latents)} latents but {len(samples)} samples rows")
+    labels = samples[label_column].fillna("").astype(str).to_numpy()
     pools = []
     for dataset in (query, database):
-        mask = (metadata["dataset"] == dataset).to_numpy()
+        mask = (samples["dataset"] == dataset).to_numpy()
         if not mask.any():
             raise ValueError(f"no samples of dataset {dataset!r}")
         pools.append(Pool(latents[mask], labels[mask]))
@@ -35,7 +36,7 @@ def load_pools(metadata: pd.DataFrame, latents: np.ndarray | None, query: str,
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--metadata", required=True, type=Path)
+    parser.add_argument("--samples", required=True, type=Path)
     parser.add_argument("--latents", type=Path, help="Not needed with --bound")
     parser.add_argument("--query-dataset", required=True)
     parser.add_argument("--database-dataset", required=True)
@@ -49,18 +50,26 @@ def main() -> None:
     if not (args.latents or args.bound):
         parser.error("--latents is required unless --bound is given")
 
-    metadata = pd.read_csv(args.metadata, index_col=0)
+    samples = pd.read_csv(args.samples, index_col=0)
     latents = np.load(args.latents) if args.latents and not args.bound else None
-    query, database = load_pools(metadata, latents, args.query_dataset,
-                                 args.database_dataset, args.label_column)
+    query, database = load_pools(
+        samples, latents, args.query_dataset, args.database_dataset, args.label_column
+    )
     graph = ontology.load(args.ontology) if args.relevance == "simgic" else None
-    result = evaluate(query, database, Relevance(args.relevance, graph),
-                      [int(k) for k in args.k.split(",")], bound=args.bound)
+    result = evaluate(
+        query,
+        database,
+        Relevance(args.relevance, graph),
+        [int(k) for k in args.k.split(",")],
+        bound=args.bound,
+    )
 
     for k, m in sorted(result.metrics.items()):
-        print(f"{args.bound or 'method'} {args.query_dataset}->{args.database_dataset} "
-              f"k={k}: precision={m.precision:.4f} "
-              f"({result.n_query} queries, {result.n_database} database samples)")
+        print(
+            f"{args.bound or 'method'} {args.query_dataset}->{args.database_dataset} "
+            f"k={k}: precision={m.precision:.4f} "
+            f"({result.n_query} queries, {result.n_database} database samples)"
+        )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(result.model_dump_json(indent=2))
 

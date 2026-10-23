@@ -28,8 +28,6 @@ def test_the_real_spec_validates():
     spec = datasets.load_spec(RESOURCES / "datasets.yaml")
     assert set(spec.datasets) >= {"tcga", "depmap", "metaprism", "pdxe",
                                   "aphrodite_human", "aphrodite_pdx"}
-    assert datasets.mutation_datasets(spec) == ["tcga", "depmap", "metaprism"]
-    assert spec.mutations is not None
     assert Path(spec.datasets["aphrodite_pdx"].expression).name in datasets.DERIVED
 
 
@@ -42,20 +40,6 @@ def test_keep_and_exclude_filter_the_samples_and_obs_gets_the_common_columns():
     assert out.obs["sample_id"].tolist() == ["TCGA-AA-0001-01A"]
     assert out.obs.columns.tolist() == datasets.OBS_COLUMNS
     assert out.obs["mondo_id"].tolist() == ["MONDO:1"] and out.obs["donor_id"].tolist() == [""]
-
-
-def test_mutation_matrix_is_assayed_samples_by_assayed_genes():
-    mutated = pd.DataFrame({"dataset": ["d", "d", "d", "other"],
-                            "sample_id": ["s1", "s1", "s9", "s1"],
-                            "gene_id_ensembl": ["g1", "g2", "g1", "g1"]})
-    samples = pd.DataFrame({"dataset": ["d", "d", "other"], "sample_id": ["s1", "s2", "s1"]})
-    genes = pd.DataFrame({"dataset": ["d", "d", "d"], "gene_id_ensembl": ["g1", "g2", "g3"]})
-    matrix = datasets.mutation_matrix(mutated, samples, genes, "d")
-    assert matrix.index.tolist() == ["s1", "s2"]      # s9 is not an assayed sample: ignored
-    assert matrix.columns.tolist() == ["g1", "g2", "g3"]
-    assert matrix.loc["s1"].tolist() == [1, 1, 0]
-    assert matrix.loc["s2"].tolist() == [0, 0, 0]      # assayed, nothing mutated: all-zero row
-    assert matrix.dtypes.iloc[0] == np.int8
 
 
 def test_the_paired_study_splits_into_human_and_paired_pdx():

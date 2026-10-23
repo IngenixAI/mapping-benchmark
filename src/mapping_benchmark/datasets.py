@@ -6,10 +6,10 @@ files. This module downloads them and writes:
 * one expression h5ad with every dataset, on the shared gene panel, whose ``obs`` has the
   columns ``sample_id``, ``dataset``, ``mondo_id``, ``mondo_name`` and ``donor_id`` (empty
   where a dataset has none);
-* the MONDO graph as a parquet with the columns ``id``, ``name``, ``parents``;
-* one binary sample-by-gene mutation matrix per dataset that has mutation calls, built
-  from three long tables keyed by ``sample_id``: which genes are mutated in which sample,
-  which samples have calls, which genes each dataset was assayed on.
+* the MONDO graph as a parquet with the columns ``id``, ``name``, ``parents``.
+
+The mutation axis does not read this repository: its labels are derived from raw tables
+by ``mapping_benchmark.alterations``.
 
 One thing is not in the spec because it is derived from the source's own columns: how
 the paired human/PDX study splits into patients' tumours and xenografts. See
@@ -45,15 +45,6 @@ class DatasetSpec(BaseModel, extra="forbid"):
     expression: str
     keep: dict[str, str] = {}
     exclude: list[str] = []
-    mutations: bool = False
-
-
-class MutationSpec(BaseModel, extra="forbid"):
-    """The three long mutation tables; every column is a string."""
-
-    mutated_genes: str      # dataset, sample_id, gene_id_ensembl (+ gene_symbol, unused)
-    assayed_samples: str    # dataset, sample_id: every sample with calls, mutated or not
-    assayed_genes: str      # dataset, gene_id_ensembl: every gene the dataset was assayed on
 
 
 class Spec(BaseModel):
@@ -62,7 +53,6 @@ class Spec(BaseModel):
     hf_repo: str
     hf_revision: str
     ontology: OntologySpec
-    mutations: MutationSpec | None = None
     datasets: dict[str, DatasetSpec]
 
     def download(self, file: str) -> Path:
@@ -153,45 +143,3 @@ def _parent_list(value) -> str:
     if isinstance(value, str):
         return value
     return json.dumps([] if value is None else [str(v) for v in value])
-
-
-def mutation_matrix(mutated: pd.DataFrame, samples: pd.DataFrame,
-                    genes: pd.DataFrame, name: str) -> pd.DataFrame:
-    """One dataset's binary sample-by-gene matrix from the three long tables.
-
-    Rows are the dataset's assayed samples, so a sample with calls but no mutated gene is
-    an all-zero row rather than a missing one; columns are its assayed genes.
-    """
-    rows = pd.Index(samples.loc[samples["dataset"] == name, "sample_id"].astype(str).unique(),
-                    name="sample_id")
-    cols = pd.Index(genes.loc[genes["dataset"] == name, "gene_id_ensembl"].astype(str).unique())
-    hits = mutated[mutated["dataset"] == name]
-    stray = hits[~hits["sample_id"].isin(rows) | ~hits["gene_id_ensembl"].isin(cols)]
-    if len(stray):
-        logger.warning(f"{name}: {len(stray)} mutated-gene rows name a sample or gene the "
-                       f"dataset was not assayed on; ignored")
-    hits = hits[hits["sample_id"].isin(rows) & hits["gene_id_ensembl"].isin(cols)]
-    values = np.zeros((len(rows), len(cols)), dtype=np.int8)
-    values[rows.get_indexer(hits["sample_id"]), cols.get_indexer(hits["gene_id_ensembl"])] = 1
-    return pd.DataFrame(values, index=rows, columns=cols)
-
-
-def export_mutations(spec: Spec, name: str, output: Path) -> None:
-    if spec.mutations is None or not spec.datasets[name].mutations:
-        raise ValueError(f"{name} has no mutation calls in the spec")
-    tables = [pd.read_parquet(spec.download(f), columns=cols) for f, cols in (
-        (spec.mutations.mutated_genes, ["dataset", "sample_id", "gene_id_ensembl"]),
-        (spec.mutations.assayed_samples, ["dataset", "sample_id"]),
-        (spec.mutations.assayed_genes, ["dataset", "gene_id_ensembl"]),
-    )]
-    matrix = mutation_matrix(*tables, name)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    matrix.to_parquet(output)
-    logger.info(f"Wrote {name} mutations, {matrix.shape[0]} samples x {matrix.shape[1]} genes "
-                f"({int(matrix.to_numpy().sum())} calls), to {output}")
-
-
-def mutation_datasets(spec: Spec) -> list[str]:
-    return [name for name, d in spec.datasets.items() if d.mutations]
-
-
