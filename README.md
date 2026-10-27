@@ -65,74 +65,112 @@ Two bounds are scored on every axis from the labels alone, with no embedding:
 
 ## Results
 
-The three baselines as the workflow last ran them, with both bounds on every row.
+The three trained methods and the correlation baseline as the workflow last ran them, with
+both bounds on every row. Intervals are 95% cluster-bootstrap intervals.
 
 ### Ontology axis (simGIC@10)
 
-| pair | k | MOBER | PCA | scVI | Random | Oracle |
+| pair | Corr-hvg | MOBER | PCA | scVI | Random | Oracle |
 |---|---|---|---|---|---|---|
-| metaprism_to_depmap | 10 | 0.248 | 0.246 | 0.239 | 0.104 | 0.556 |
-| tcga_to_depmap | 10 | 0.406 | 0.380 | 0.397 | 0.104 | 0.669 |
-| tcga_to_metaprism | 10 | 0.369 | 0.373 | 0.377 | 0.126 | 0.634 |
-| tcga_to_pdxe | 10 | 0.326 | 0.315 | 0.329 | 0.130 | 0.513 |
+| metaprism_to_depmap | 0.267 [0.257, 0.278] | 0.248 [0.238, 0.258] | 0.246 [0.236, 0.257] | 0.239 [0.230, 0.249] | 0.104 | 0.556 |
+| tcga_to_depmap | 0.421 [0.419, 0.425] | 0.406 [0.402, 0.409] | 0.380 [0.377, 0.384] | 0.397 [0.394, 0.400] | 0.104 | 0.669 |
+| tcga_to_metaprism | 0.389 [0.387, 0.392] | 0.369 [0.367, 0.372] | 0.373 [0.371, 0.376] | 0.377 [0.374, 0.380] | 0.126 | 0.634 |
+| tcga_to_pdxe | 0.336 [0.334, 0.339] | 0.326 [0.323, 0.328] | 0.315 [0.312, 0.318] | 0.329 [0.326, 0.332] | 0.130 | 0.513 |
 
 ### Mutation axis (AUROC@10)
 
-Each pair's primary analyses as one mean AUROC, cancers weighted √n, with 95% intervals:
+Each pair's primary analyses as one mean AUROC, cancers weighted √n:
 
-| pair | cancers | MOBER | PCA | scVI | Random | Oracle |
-|---|---|---|---|---|---|---|
-| metaprism_to_depmap | BRCA+LUAD | 0.745 [0.675, 0.811] | 0.728 [0.657, 0.797] | 0.769 [0.706, 0.829] | 0.500 | 1.000 |
-| tcga_to_depmap | BRCA+COAD+LUAD+SKCM | 0.709 [0.689, 0.730] | 0.626 [0.607, 0.647] | 0.741 [0.720, 0.760] | 0.500 | 1.000 |
-| tcga_to_metaprism | BRCA+LUAD | 0.702 [0.680, 0.723] | 0.671 [0.647, 0.693] | 0.732 [0.712, 0.757] | 0.500 | 1.000 |
+| pair | cancers | Corr-hvg | MOBER | PCA | scVI | Random | Oracle |
+|---|---|---|---|---|---|---|---|
+| metaprism_to_depmap | BRCA+LUAD | 0.733 [0.661, 0.801] | 0.745 [0.676, 0.811] | 0.728 [0.656, 0.796] | 0.769 [0.705, 0.831] | 0.500 | 1.000 |
+| tcga_to_depmap | BRCA+COAD+LUAD+SKCM | 0.682 [0.661, 0.705] | 0.709 [0.690, 0.731] | 0.626 [0.607, 0.647] | 0.741 [0.720, 0.760] | 0.500 | 1.000 |
+| tcga_to_metaprism | BRCA+LUAD | 0.650 [0.629, 0.675] | 0.702 [0.676, 0.724] | 0.671 [0.646, 0.693] | 0.732 [0.712, 0.758] | 0.500 | 1.000 |
 
 The primary analyses with at least 10 mutant and 10 wild-type samples on both sides, 24 of
 63; `results/summary.md` lists the others with their counts. \* marks a Benjamini–Hochberg
 q < 0.05 against shuffled database labels.
 
-| pair | disease | alteration | MOBER | PCA | scVI | Random | Oracle |
-|---|---|---|---|---|---|---|---|
-| metaprism_to_depmap | BRCA | PIK3CA_core | 0.630 | 0.638 | 0.604 | 0.500 | 1.000 |
-| metaprism_to_depmap | LUAD | KEAP1 | 0.818* | 0.722* | 0.848* | 0.500 | 1.000 |
-| metaprism_to_depmap | LUAD | KRAS | 0.663* | 0.683* | 0.763* | 0.500 | 1.000 |
-| metaprism_to_depmap | LUAD | SMARCA4 | 0.893* | 0.894* | 0.926* | 0.500 | 1.000 |
-| metaprism_to_depmap | LUAD | STK11 | 0.879* | 0.822* | 0.927* | 0.500 | 1.000 |
-| tcga_to_depmap | BRCA | PIK3CA_core | 0.538 | 0.588 | 0.666 | 0.500 | 1.000 |
-| tcga_to_depmap | BRCA | TP53_lof | 0.804* | 0.811* | 0.821* | 0.500 | 1.000 |
-| tcga_to_depmap | COAD | BRAF_V600E | 0.932* | 0.660 | 0.849* | 0.500 | 1.000 |
-| tcga_to_depmap | COAD | KRAS_MSS | 0.633 | 0.447 | 0.708* | 0.500 | 1.000 |
-| tcga_to_depmap | COAD | MSI | 0.946* | 0.870* | 0.955* | 0.500 | 1.000 |
-| tcga_to_depmap | LUAD | KEAP1 | 0.818* | 0.623 | 0.795* | 0.500 | 1.000 |
-| tcga_to_depmap | LUAD | KRAS | 0.580 | 0.483 | 0.578 | 0.500 | 1.000 |
-| tcga_to_depmap | LUAD | SMARCA4 | 0.882* | 0.741* | 0.900* | 0.500 | 1.000 |
-| tcga_to_depmap | LUAD | STK11 | 0.788* | 0.492 | 0.798* | 0.500 | 1.000 |
-| tcga_to_depmap | SKCM | BRAF | 0.628* | 0.571 | 0.670* | 0.500 | 1.000 |
-| tcga_to_depmap | SKCM | NRAS | 0.538 | 0.513 | 0.569* | 0.500 | 1.000 |
-| tcga_to_metaprism | BRCA | PIK3CA_core | 0.675* | 0.691* | 0.726* | 0.500 | 1.000 |
-| tcga_to_metaprism | LUAD | BRAF | 0.623* | 0.526 | 0.568 | 0.500 | 1.000 |
-| tcga_to_metaprism | LUAD | EGFR | 0.875* | 0.806* | 0.861* | 0.500 | 1.000 |
-| tcga_to_metaprism | LUAD | KEAP1 | 0.773* | 0.736* | 0.822* | 0.500 | 1.000 |
-| tcga_to_metaprism | LUAD | KRAS | 0.599* | 0.510 | 0.619* | 0.500 | 1.000 |
-| tcga_to_metaprism | LUAD | SMARCA4 | 0.849* | 0.709 | 0.877* | 0.500 | 1.000 |
-| tcga_to_metaprism | LUAD | STK11 | 0.673* | 0.543 | 0.673 | 0.500 | 1.000 |
-| tcga_to_metaprism | LUAD | TP53 | 0.748* | 0.691* | 0.753* | 0.500 | 1.000 |
+| pair | disease | alteration | Corr-hvg | MOBER | PCA | scVI | Random | Oracle |
+|---|---|---|---|---|---|---|---|---|
+| metaprism_to_depmap | BRCA | PIK3CA_core | 0.591 | 0.630 | 0.638 | 0.604 | 0.500 | 1.000 |
+| metaprism_to_depmap | LUAD | KEAP1 | 0.785* | 0.818* | 0.722* | 0.848* | 0.500 | 1.000 |
+| metaprism_to_depmap | LUAD | KRAS | 0.736* | 0.663* | 0.683* | 0.763* | 0.500 | 1.000 |
+| metaprism_to_depmap | LUAD | SMARCA4 | 0.903* | 0.893* | 0.894* | 0.926* | 0.500 | 1.000 |
+| metaprism_to_depmap | LUAD | STK11 | 0.846* | 0.879* | 0.822* | 0.927* | 0.500 | 1.000 |
+| tcga_to_depmap | BRCA | PIK3CA_core | 0.572 | 0.538 | 0.588 | 0.666 | 0.500 | 1.000 |
+| tcga_to_depmap | BRCA | TP53_lof | 0.807 | 0.804* | 0.811* | 0.821* | 0.500 | 1.000 |
+| tcga_to_depmap | COAD | BRAF_V600E | 0.868* | 0.932* | 0.660 | 0.849* | 0.500 | 1.000 |
+| tcga_to_depmap | COAD | KRAS_MSS | 0.672 | 0.633 | 0.447 | 0.708* | 0.500 | 1.000 |
+| tcga_to_depmap | COAD | MSI | 0.911* | 0.946* | 0.870* | 0.955* | 0.500 | 1.000 |
+| tcga_to_depmap | LUAD | KEAP1 | 0.625 | 0.818* | 0.623 | 0.795* | 0.500 | 1.000 |
+| tcga_to_depmap | LUAD | KRAS | 0.504 | 0.580 | 0.483 | 0.578 | 0.500 | 1.000 |
+| tcga_to_depmap | LUAD | SMARCA4 | 0.718 | 0.882* | 0.741* | 0.900* | 0.500 | 1.000 |
+| tcga_to_depmap | LUAD | STK11 | 0.689* | 0.788* | 0.492 | 0.798* | 0.500 | 1.000 |
+| tcga_to_depmap | SKCM | BRAF | 0.643* | 0.628* | 0.571 | 0.670* | 0.500 | 1.000 |
+| tcga_to_depmap | SKCM | NRAS | 0.559 | 0.538 | 0.513 | 0.569* | 0.500 | 1.000 |
+| tcga_to_metaprism | BRCA | PIK3CA_core | 0.615 | 0.675* | 0.691* | 0.726* | 0.500 | 1.000 |
+| tcga_to_metaprism | LUAD | BRAF | 0.595 | 0.623 | 0.526 | 0.568 | 0.500 | 1.000 |
+| tcga_to_metaprism | LUAD | EGFR | 0.848* | 0.875* | 0.806* | 0.861* | 0.500 | 1.000 |
+| tcga_to_metaprism | LUAD | KEAP1 | 0.794* | 0.773* | 0.736* | 0.822* | 0.500 | 1.000 |
+| tcga_to_metaprism | LUAD | KRAS | 0.597 | 0.599* | 0.510 | 0.619* | 0.500 | 1.000 |
+| tcga_to_metaprism | LUAD | SMARCA4 | 0.689 | 0.849* | 0.709 | 0.877* | 0.500 | 1.000 |
+| tcga_to_metaprism | LUAD | STK11 | 0.587 | 0.673 | 0.543 | 0.673 | 0.500 | 1.000 |
+| tcga_to_metaprism | LUAD | TP53 | 0.738* | 0.748* | 0.691* | 0.753* | 0.500 | 1.000 |
 
 ### Donor axis (precision@1)
 
-| pair | k | MOBER | PCA | scVI | Random | Oracle |
+| pair | Corr-hvg | MOBER | PCA | scVI | Random | Oracle |
 |---|---|---|---|---|---|---|
-| aphrodite | 1 | 0.319 | 0.128 | 0.447 | 0.021 | 1.000 |
+| aphrodite | 0.596 [0.447, 0.745] | 0.319 [0.192, 0.468] | 0.128 [0.043, 0.234] | 0.447 [0.298, 0.596] | 0.021 | 1.000 |
+
+### Against the correlation baseline
+
+Each method's score minus the baseline's on the same resamples; p-values Holm-corrected
+within each axis (`results/comparisons.csv`).
+
+| axis | pair | method | difference [95% interval] | Holm p | verdict |
+|---|---|---|---|---|---|
+| donor | aphrodite | MOBER | -0.277 [-0.404, -0.149] | 0.0006 | worse |
+| donor | aphrodite | PCA | -0.468 [-0.617, -0.319] | 0.0006 | worse |
+| donor | aphrodite | scVI | -0.149 [-0.255, -0.064] | 0.0022 | worse |
+| mutation | metaprism_to_depmap | MOBER | +0.012 [-0.049, +0.071] | 1.0000 | undecided |
+| mutation | metaprism_to_depmap | PCA | -0.006 [-0.060, +0.046] | 1.0000 | undecided |
+| mutation | metaprism_to_depmap | scVI | +0.035 [-0.033, +0.102] | 0.9119 | undecided |
+| mutation | tcga_to_depmap | MOBER | +0.027 [+0.011, +0.043] | 0.0072 | better |
+| mutation | tcga_to_depmap | PCA | -0.056 [-0.073, -0.038] | 0.0018 | worse |
+| mutation | tcga_to_depmap | scVI | +0.059 [+0.041, +0.075] | 0.0018 | better |
+| mutation | tcga_to_metaprism | MOBER | +0.052 [+0.018, +0.080] | 0.0120 | better |
+| mutation | tcga_to_metaprism | PCA | +0.021 [-0.010, +0.045] | 0.7775 | undecided |
+| mutation | tcga_to_metaprism | scVI | +0.082 [+0.059, +0.105] | 0.0018 | better |
+| ontology | metaprism_to_depmap | MOBER | -0.019 [-0.025, -0.013] | 0.0024 | worse |
+| ontology | metaprism_to_depmap | PCA | -0.021 [-0.025, -0.016] | 0.0024 | worse |
+| ontology | metaprism_to_depmap | scVI | -0.028 [-0.035, -0.022] | 0.0024 | worse |
+| ontology | tcga_to_depmap | MOBER | -0.016 [-0.019, -0.013] | 0.0024 | worse |
+| ontology | tcga_to_depmap | PCA | -0.042 [-0.044, -0.039] | 0.0024 | worse |
+| ontology | tcga_to_depmap | scVI | -0.025 [-0.028, -0.021] | 0.0024 | worse |
+| ontology | tcga_to_metaprism | MOBER | -0.020 [-0.021, -0.018] | 0.0024 | worse |
+| ontology | tcga_to_metaprism | PCA | -0.016 [-0.017, -0.014] | 0.0024 | worse |
+| ontology | tcga_to_metaprism | scVI | -0.012 [-0.014, -0.010] | 0.0024 | worse |
+| ontology | tcga_to_pdxe | MOBER | -0.010 [-0.012, -0.009] | 0.0024 | worse |
+| ontology | tcga_to_pdxe | PCA | -0.021 [-0.023, -0.019] | 0.0024 | worse |
+| ontology | tcga_to_pdxe | scVI | -0.007 [-0.010, -0.005] | 0.0024 | worse |
 
 Read as the share of the random-to-oracle interval covered: on the ontology axis the three
-methods sit at 48–53% of it wherever TCGA is the query, and at 30–32% on MetaPRISM →
-DepMap, the one mapping whose queries were never seen in training. On the mutation axis
-microsatellite instability in colon cancer is the clearest signal (0.87–0.96), while the
-neighbours of a KRAS-mutant lung tumour from TCGA are barely more often KRAS-mutant cell
-lines than those of a wild-type one (0.48–0.58). scVI scores highest in 17 of the 24
-analyses and MOBER in 6; PCA is the lowest in 18. Averaged per pair, scVI is highest on
-all three pairs (0.73–0.77) and PCA lowest (0.63–0.73). On the donor axis scVI covers 43%,
-MOBER 30% and PCA 11%. The numbers above are the workflow's own `results/summary.md`;
-rerunning it rewrites them.
+trained methods sit at 48–53% of it wherever TCGA is the query, and at 30–32% on MetaPRISM
+→ DepMap, the one mapping whose queries were never seen in training. The correlation
+baseline, which fits nothing, covers more on all four pairs (36–56%), and every trained
+method is below it on each. On the mutation axis microsatellite instability in colon
+cancer is the clearest signal (0.87–0.96), while the neighbours of a KRAS-mutant lung
+tumour from TCGA are barely more often KRAS-mutant cell lines than those of a wild-type
+one (0.48–0.58). scVI scores highest in 17 of the 24 analyses and MOBER in 6; PCA is the
+lowest in 16. Averaged per pair, scVI and MOBER beat the baseline from TCGA, by 0.03–0.08,
+and PCA falls below it from TCGA into DepMap; from MetaPRISM into DepMap no method can be
+told apart from it. On the donor axis the baseline covers 59% of the interval, scVI 43%,
+MOBER 30% and PCA 11%, all three below it. These tests cover which tumours were sampled;
+the database and the training seed are held fixed. The numbers above come from the
+workflow's own `results/summary.csv` and `results/comparisons.csv`; rerunning it rewrites
+them.
 
 ## How a score is computed
 
