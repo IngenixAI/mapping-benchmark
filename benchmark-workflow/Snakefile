@@ -21,6 +21,7 @@ Results:
     results/donor/{pair}/             one JSON per method and bound
     results/summary.csv, .md, .pdf    every score in one table and one figure
     results/comparisons.csv           every method against the baseline, per axis and pair
+    results/figures/                  the paper's results figures
 """
 
 import re
@@ -105,6 +106,10 @@ RESULTS = ([f"results/{axis}/{pair}/{m}.json"
            + [MUTATION_RESULT])
 MUTATION_CANCER_FIGURES = [f"results/mutation/{disease}/summary.{ext}"
                           for disease in TASKS.diseases for ext in ("pdf", "png")]
+FIGURES = [f"results/figures/{name}.{ext}"
+           for name in ("fig3_aggregated", "fig3_expanded_ontology_values",
+                        "fig3_expanded_mutation")
+           for ext in ("pdf", "png")]
 
 
 rule all:
@@ -117,6 +122,7 @@ rule all:
         "results/comparisons.csv",
         "results/summary.pdf",
         "results/summary_mutation.pdf",
+        FIGURES,
 
 
 # =====================================================================================
@@ -471,3 +477,23 @@ rule plot_summary:
             --mutation-output {output[2]} --mutation-cancer-dir results/mutation \
             2>&1 | tee {log}
         """
+
+
+rule plot_paper_figures:
+    """The paper's results figures: aggregated, and expanded per diagnosis and analysis."""
+    input:
+        summary="results/summary.csv",
+        comparisons="results/comparisons.csv",
+        samples=EXPRESSION_SAMPLES,
+        implementation=f"{SCRIPTS}/plot_paper_figures.py",
+    output:
+        FIGURES,
+    log:
+        "logs/plot_paper_figures.log",
+    shell:
+        """
+        uv run python {SCRIPTS}/plot_paper_figures.py --summary {input.summary:q} \
+            --comparisons {input.comparisons:q} \
+            --samples {input.samples:q} --output-dir results/figures 2>&1 | tee {log}
+        """
+

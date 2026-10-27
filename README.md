@@ -272,6 +272,12 @@ results/summary.pdf, .png           ontology, the mean AUROC per mutation pair a
                                     as random-to-oracle bars, with 95% intervals
 results/summary_mutation.pdf, .png  AUROC with 95% intervals per alteration and pair
 results/mutation/{disease}/summary.pdf, .png   the same, one cancer type per figure
+results/figures/                    the paper's results figures, PDF and PNG, 5.5 in wide:
+                                    fig3_aggregated (all three axes, mutation as one AUROC
+                                    per pair; hollow points could not be told from the
+                                    baseline), fig3_expanded_ontology_values (simGIC per
+                                    query diagnosis) and fig3_expanded_mutation (each
+                                    primary analysis against the baseline)
 ```
 
 Each ontology and donor JSON holds the score per k together with its 95% interval,
