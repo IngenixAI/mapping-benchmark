@@ -88,7 +88,12 @@ def report_protocol(tasks: Tasks) -> list[str]:
 
 
 def write_report(
-    output: Path, cases: list[dict], scores: pd.DataFrame, tasks: Tasks, methods: list[str]
+    output: Path,
+    cases: list[dict],
+    scores: pd.DataFrame,
+    aggregate: pd.DataFrame,
+    tasks: Tasks,
+    methods: list[str],
 ) -> None:
     count_table = cohort_counts(cases)
     count_table.to_csv(output / "counts.csv", index=False)
@@ -96,6 +101,17 @@ def write_report(
     parts = report_protocol(tasks)
     parts.append("<p><a href='explorer.html'>Open the interactive mutation explorer</a>: "
                  "filter cancer, dataset pair, analysis, tier and shortlist depth.</p>")
+    parts.extend(
+        [
+            f"<h2>Primary analyses per pair at k={tasks.primary_k}</h2>",
+            "<p>The mean AUROC of each cancer's primary analyses, then the mean over the "
+            "cancers in the pair, a cancer with n query patients weighing n^0.5. Intervals "
+            "resample the query clusters within each cancer, once for all of its analyses."
+            "</p><div class='scroll'>",
+            aggregate[aggregate.k.eq(tasks.primary_k)].round(4).to_html(index=False),
+            "</div>",
+        ]
+    )
 
     for tier in ("primary", "exploratory", "sensitivity"):
         table = scores[scores.tier.eq(tier) & scores.k.eq(tasks.primary_k)]
@@ -119,6 +135,7 @@ def write_report(
             pd.DataFrame(rules).to_html(index=False),
             "</div>",
             "<p>Artifacts: <a href='scores.csv'>scores.csv</a>, "
+            "<a href='aggregate.csv'>aggregate.csv</a>, "
             "<a href='counts.csv'>counts.csv</a>, "
             "<a href='results.json'>results.json</a>, "
             "<a href='sample_labels.csv'>sample_labels.csv</a>, "
@@ -164,6 +181,7 @@ def write_results(
     evidence: pd.DataFrame,
     cases: list[dict],
     scores: pd.DataFrame,
+    aggregate: pd.DataFrame,
     tasks: Tasks,
     methods: list[str],
     provenance: dict,
@@ -179,6 +197,7 @@ def write_results(
         labels.to_csv(stage / "sample_labels.csv")
         evidence.to_csv(stage / "variant_evidence.csv", index=False)
         scores.to_csv(stage / "scores.csv", index=False)
+        aggregate.to_csv(stage / "aggregate.csv", index=False)
 
         # pandas JSON conversion turns missing/NaN values into standards-compliant nulls.
         result = {
@@ -187,9 +206,10 @@ def write_results(
             "methods": methods,
             "cases": cases,
             "scores": json.loads(scores.to_json(orient="records")),
+            "aggregate": json.loads(aggregate.to_json(orient="records")),
         }
         (stage / "results.json").write_text(json.dumps(result, indent=2, allow_nan=False))
-        write_report(stage, cases, scores, tasks, methods)
+        write_report(stage, cases, scores, aggregate, tasks, methods)
 
         # Hash staged artifacts before publishing the final completion marker.
         manifest["outputs"] = {

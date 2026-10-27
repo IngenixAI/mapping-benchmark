@@ -4,7 +4,9 @@
 simGIC on the ontology axis and precision on the donor axis, each with its 95% interval,
 and AUROC on the mutation axis, with its 95% interval, permutation p-value and the common
 evaluator's Benjamini-Hochberg q-value. Corrections remain separate for
-primary/exploratory tiers across the declared run.
+primary/exploratory tiers across the declared run. Each mutation pair's primary analyses
+also get one row per method and k, metric ``mean AUROC``: the mean per cancer, then over
+cancers, with its interval.
 ``summary.md`` shows tables per axis and tier, methods as columns and bounds last.
 A star marks q < 0.05; unavailable/ineligible scores are shown as —, with counts and reasons.
 """
@@ -69,6 +71,13 @@ def mutation_rows(result: dict):
             "ci_high": score["auroc_ci_high"], "p_value": score.get("auroc_p"),
             "q_value": score.get("auroc_q"), "fdr_family": score["fdr_family"],
         }
+    for row in result.get("aggregate", []):
+        yield {"axis": "mutation", "pair": row["pair"], "disease": row["diseases"],
+               "alteration": f"{row['n_analyses']} primary analyses", "metric": "mean AUROC",
+               "tier": "primary", "stratum": "all", "method": row["method"], "k": row["k"],
+               "primary_depth": row["primary_depth"], "eligible": True, "score": row["auroc"],
+               "ci_low": row["auroc_ci_low"], "ci_high": row["auroc_ci_high"],
+               "statistics_source": "shared"}
     for key, case in cases.items():
         for method in [*result["methods"], *BOUNDS]:
             for k in result["tasks"]["k"]:
@@ -100,6 +109,17 @@ def _retrieval(axis: str, frame: pd.DataFrame) -> list[str]:
 
 def _mutation(_: str, frame: pd.DataFrame) -> list[str]:
     out = []
+    pooled = frame[frame["metric"] == "mean AUROC"].rename(columns={"disease": "cancers"})
+    if not pooled.empty:
+        pooled = pooled.assign(score=[
+            f"{s:.3f}" + (f" [{lo:.3f}, {hi:.3f}]" if pd.notna(lo) else "")
+            for s, lo, hi in zip(pooled["score"], pooled["ci_low"], pooled["ci_high"])])
+        out.append("## Mutation axis: primary analyses per pair, cancers weighted n^0.5 "
+                   "(AUROC@k)\n")
+        out.append(_table(_pivot(pooled, ["pair", "cancers", "k"], aggfunc="first")))
+        out.append("Mean AUROC per cancer, then over cancers; [95% interval] from joint "
+                   "cluster resamples within each cancer.\n")
+    frame = frame[frame["metric"] == "AUROC"]
     for tier, cells in frame.groupby("tier", sort=False):
         cells = cells.copy()
         cells["score"] = [_cell(s, q, e) for s, q, e in zip(

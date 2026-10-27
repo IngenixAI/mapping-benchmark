@@ -55,8 +55,8 @@ MUTATION_TASKS = MUTATION["tasks"]
 TASKS = load_tasks(MUTATION_TASKS)
 MUTATION_RESULT = "results/mutation/results.json"
 MUTATION_ARTIFACTS = [f"results/mutation/{name}" for name in (
-    "results.json", "report.html", "explorer.html", "scores.csv", "counts.csv", "manifest.json",
-    "sample_labels.csv", "variant_evidence.csv")]
+    "results.json", "report.html", "explorer.html", "scores.csv", "aggregate.csv", "counts.csv",
+    "manifest.json", "sample_labels.csv", "variant_evidence.csv")]
 
 # --- Methods and bounds ---------------------------------------------------------------
 
@@ -383,6 +383,7 @@ rule mutation_benchmark:
         report="results/mutation/report.html",
         explorer="results/mutation/explorer.html",
         scores="results/mutation/scores.csv",
+        aggregate="results/mutation/aggregate.csv",
         counts="results/mutation/counts.csv",
         results="results/mutation/results.json",
         manifest="results/mutation/manifest.json",

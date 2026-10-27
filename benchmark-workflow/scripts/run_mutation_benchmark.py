@@ -150,10 +150,14 @@ def main(argv: list[str] | None = None) -> None:
     provenance["inputs"].update(inputs)
 
     # 3. Select common cohorts, score all methods and correct testing families.
-    cases, scores = evaluate(labels, tasks, methods, progress=lambda s: print(s, flush=True))
+    cases, scores, aggregate = evaluate(
+        labels, tasks, methods, progress=lambda s: print(s, flush=True)
+    )
 
     # 4. Publish tables, report and provenance only after scoring succeeds.
-    write_results(args.output, labels, evidence, cases, scores, tasks, list(methods), provenance)
+    write_results(
+        args.output, labels, evidence, cases, scores, aggregate, tasks, list(methods), provenance
+    )
     print(f"Report: {args.output / 'report.html'}", flush=True)
 
 

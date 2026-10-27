@@ -1,7 +1,7 @@
 """Overview and per-cancer figures with one fixed worst-to-best method order.
 
-Ontology and donor use Random-to-Oracle bars, mutation uses AUROC. Every method carries its
-bootstrap 95% interval.
+Ontology, donor and each mutation pair's primary mean use Random-to-Oracle bars, the
+mutation analyses AUROC. Every method carries its bootstrap 95% interval.
 """
 
 import argparse
@@ -18,7 +18,8 @@ from mapping_benchmark.mutation_visualization import model_ranking
 matplotlib.use("Agg")
 
 # axis, the metric plotted, its axis label
-BARS = [("ontology", "simGIC", "simGIC@k"), ("donor", "precision", "precision@k")]
+BARS = [("ontology", "simGIC", "simGIC@k"), ("mutation", "mean AUROC", "mean AUROC@k"),
+        ("donor", "precision", "precision@k")]
 MARKERS = ["o", "D", "^", "v", "s", "P", "X", "*"]
 COLOURS = ["#3a6fd4", "#e08a1e", "#1e8e63", "#c74b96", "#c0392b", "#7f7f7f", "#8c564b",
            "#17a2b8"]
@@ -139,6 +140,8 @@ def main() -> None:
 
     summary = pd.read_csv(args.summary)
     summary["row"] = summary["pair"].str.replace("_to_", " → ")
+    pooled = summary["metric"].eq("mean AUROC")
+    summary.loc[pooled, "row"] += "\n" + summary.loc[pooled, "disease"].str.replace("+", ", ")
     methods = [m for m in summary["method"].unique() if m not in ("Random", "Oracle")]
     mutation = summary[(summary["axis"] == "mutation") & (summary["metric"] == "AUROC")]
     primary = mutation[mutation["primary_depth"].eq(True)]

@@ -73,6 +73,14 @@ The three baselines as the workflow last ran them, with both bounds on every row
 
 ### Mutation axis (AUROC@10)
 
+Each pair's primary analyses as one mean AUROC, cancers weighted √n, with 95% intervals:
+
+| pair | cancers | MOBER | PCA | scVI | Random | Oracle |
+|---|---|---|---|---|---|---|
+| metaprism_to_depmap | BRCA+LUAD | 0.745 [0.675, 0.811] | 0.728 [0.657, 0.797] | 0.769 [0.706, 0.829] | 0.500 | 1.000 |
+| tcga_to_depmap | BRCA+COAD+LUAD+SKCM | 0.709 [0.689, 0.730] | 0.626 [0.607, 0.647] | 0.741 [0.720, 0.760] | 0.500 | 1.000 |
+| tcga_to_metaprism | BRCA+LUAD | 0.702 [0.680, 0.723] | 0.671 [0.647, 0.693] | 0.732 [0.712, 0.757] | 0.500 | 1.000 |
+
 The primary analyses with at least 10 mutant and 10 wild-type samples on both sides, 24 of
 63; `results/summary.md` lists the others with their counts. \* marks a Benjamini–Hochberg
 q < 0.05 against shuffled database labels.
@@ -116,9 +124,10 @@ DepMap, the one mapping whose queries were never seen in training. On the mutati
 microsatellite instability in colon cancer is the clearest signal (0.87–0.96), while the
 neighbours of a KRAS-mutant lung tumour from TCGA are barely more often KRAS-mutant cell
 lines than those of a wild-type one (0.48–0.58). scVI scores highest in 17 of the 24
-analyses and MOBER in 6; PCA is the lowest in 18. On the donor axis scVI covers 43%, MOBER
-30% and PCA 11%. The numbers above are the workflow's own `results/summary.md`; rerunning
-it rewrites them.
+analyses and MOBER in 6; PCA is the lowest in 18. Averaged per pair, scVI is highest on
+all three pairs (0.73–0.77) and PCA lowest (0.63–0.73). On the donor axis scVI covers 43%,
+MOBER 30% and PCA 11%. The numbers above are the workflow's own `results/summary.md`;
+rerunning it rewrites them.
 
 ## How a score is computed
 
@@ -160,7 +169,12 @@ that a mutant query's s exceeds a wild-type query's: both share the disease and 
 database, so 0.5 means the neighbours know nothing about the alteration beyond the
 disease. P-values shuffle the database's labels, and Benjamini–Hochberg q-values are
 computed separately for the primary and exploratory analyses. An analysis is scored only
-when it has at least 10 mutant and 10 wild-type samples on each side.
+when it has at least 10 mutant and 10 wild-type samples on each side. Each pair's primary
+analyses are also summarised by one AUROC per method: the mean over each cancer's
+analyses, then over cancers, a cancer with n query patients weighing √n, as on the
+ontology axis; its interval resamples each cancer's queries once for all of its analyses.
+Pairs are kept apart, since they ask different questions (seen in training or not) and
+cover different cancers.
 
 *Donor.* Each patient in the Aphrodite study has a tumour sample and one or two
 xenografts grown from it. A neighbour is worth 1 when it is the query's own xenograft.
@@ -227,14 +241,15 @@ uv run --frozen python benchmark-workflow/scripts/run_mutation_benchmark.py
 results/models/{method}/            latents.npy, latents.csv, and the fitted model
 results/ontology/{pair}/            {PCA,scVI,MOBER,Random,Oracle}.json
 results/donor/aphrodite/            {PCA,scVI,MOBER,Random,Oracle}.json
-results/mutation/                   results.json, scores.csv, counts.csv, sample_labels.csv,
+results/mutation/                   results.json, scores.csv, aggregate.csv (the mean AUROC
+                                    per pair), counts.csv, sample_labels.csv,
                                     variant_evidence.csv, manifest.json (input hashes),
                                     report.html and explorer.html (offline, interactive)
 results/summary.csv                 every score, one row per axis, pair, disease,
                                     alteration, method, k and metric
 results/summary.md                  one table per axis, methods as columns, bounds last
-results/summary.pdf, .png           ontology and donor as random-to-oracle bars, with
-                                    95% intervals
+results/summary.pdf, .png           ontology, the mean AUROC per mutation pair and donor
+                                    as random-to-oracle bars, with 95% intervals
 results/summary_mutation.pdf, .png  AUROC with 95% intervals per alteration and pair
 results/mutation/{disease}/summary.pdf, .png   the same, one cancer type per figure
 ```

@@ -18,8 +18,15 @@ so every method sees the same resamples and the same permutations.
 
 Two bounds come from the labels alone: ``random`` (AUROC 0.5) and ``oracle`` (every query
 retrieves models of its own status first).
+
+Each pair's primary analyses are also summarised by one AUROC: the mean over the analyses
+of each cancer, then over the cancers, a cancer with n query patients weighing n^0.5, as a
+label does on the ontology axis. Pairs stay apart, as they ask different questions (seen in
+training or not). Its interval resamples the query clusters within each cancer, once for
+all of its analyses, so analyses sharing patients move together.
 """
 
+from collections import defaultdict
 from collections.abc import Callable
 from pathlib import Path
 
@@ -31,6 +38,7 @@ from scipy.stats import false_discovery_control
 from mapping_benchmark.mutation_labels import validate_labels, validate_sample_ids
 from mapping_benchmark.mutation_tasks import Analysis, Disease, Tasks
 from mapping_benchmark.retrieval import (
+    LABEL_WEIGHT,
     Bound,
     Interval,
     bootstrap,
@@ -263,23 +271,92 @@ def correct_multiplicity(scores: pd.DataFrame, tasks: Tasks) -> pd.DataFrame:
     return scores[SCORE_COLUMNS]
 
 
+AGGREGATE_COLUMNS = [
+    "pair",
+    "method",
+    "bound",
+    "k",
+    "primary_depth",
+    "diseases",
+    "n_analyses",
+    "auroc",
+    "auroc_ci_low",
+    "auroc_ci_high",
+]
+
+
+def cancer_sizes(labels: pd.DataFrame, cases: list[dict]) -> dict[str, dict[str, int]]:
+    """Query patients per pair and cancer, over the cancer's eligible primary analyses."""
+    ids = defaultdict(set)
+    for case in cases:
+        if case["tier"] == "primary" and case["eligible"]:
+            ids[case["pair"], case["disease"]].update(case["query_ids"])
+    sizes = defaultdict(dict)
+    for (pair, disease), samples in ids.items():
+        sizes[pair][disease] = labels.loc[sorted(samples), "patient_id"].nunique()
+    return dict(sizes)
+
+
+def disease_weights(diseases, sizes: dict[str, int]) -> np.ndarray:
+    """Each cancer weighs its query patients^0.5, shared equally among its analyses."""
+    names, code, counts = np.unique(np.asarray(diseases), return_inverse=True, return_counts=True)
+    weights = np.array([sizes[d] for d in names], float) ** LABEL_WEIGHT
+    return (weights / weights.sum())[code] / counts[code]
+
+
+def aggregate(
+    scores: pd.DataFrame, draws: dict, tasks: Tasks, sizes: dict[str, dict[str, int]]
+) -> pd.DataFrame:
+    """One AUROC per pair, method and depth over the primary analyses.
+
+    ``draws`` holds each method's aggregate per resample, by (pair, method, k).
+    """
+    records = []
+    primary = scores[scores.tier.eq("primary")]
+    for (pair, method, k), cells in primary.groupby(["pair", "method", "k"], sort=False):
+        low, high = interval(draws.get((pair, method, k), [])) or (None, None)
+        records.append(
+            {
+                "pair": pair,
+                "method": method,
+                "bound": cells.bound.iloc[0],
+                "k": k,
+                "primary_depth": k == tasks.primary_k,
+                "diseases": "+".join(sorted(cells.disease.unique())),
+                "n_analyses": len(cells),
+                "auroc": float(disease_weights(cells.disease, sizes[pair]) @ cells.auroc),
+                "auroc_ci_low": low,
+                "auroc_ci_high": high,
+            }
+        )
+    return pd.DataFrame(records, columns=AGGREGATE_COLUMNS)
+
+
 def evaluate(
     labels: pd.DataFrame,
     tasks: Tasks,
     methods: dict[str, Path],
     progress: Callable[[str], None] | None = None,
-) -> tuple[list[dict], pd.DataFrame]:
-    """Select common cohorts, score all methods and bounds, then correct testing families."""
+) -> tuple[list[dict], pd.DataFrame, pd.DataFrame]:
+    """Select common cohorts, score all methods and bounds, then correct testing families.
+
+    Also returns each pair's primary analyses as one AUROC per method (``aggregate``).
+    """
     cases = select_cases(labels, tasks)
-    records = score_bounds(labels, tasks, cases, progress)
+    sizes = cancer_sizes(labels, cases)
+    records, draws = score_bounds(labels, tasks, cases, progress), {}
 
     # Each method must supply the exact same samples for every eligible cohort.
     for method, folder in methods.items():
-        records.extend(score_method(labels, tasks, cases, method, folder, progress))
+        method_records, method_draws = score_method(
+            labels, tasks, cases, sizes, method, folder, progress
+        )
+        records.extend(method_records)
+        draws |= method_draws
 
     # Correct across the declared run after collecting all methods.
-    scores = pd.DataFrame(records, columns=SCORE_COLUMNS)
-    return cases, correct_multiplicity(scores, tasks)
+    scores = correct_multiplicity(pd.DataFrame(records, columns=SCORE_COLUMNS), tasks)
+    return cases, scores, aggregate(scores, draws, tasks, sizes)
 
 
 def score_bounds(
@@ -323,12 +400,17 @@ def score_method(
     labels: pd.DataFrame,
     tasks: Tasks,
     cases: list[dict],
+    sizes: dict[str, dict[str, int]],
     method: str,
     folder: Path,
     progress: Callable[[str], None] | None = None,
-) -> list[dict]:
-    """Align one embedding to the fixed cohorts, then score each available depth."""
+) -> tuple[list[dict], dict]:
+    """Align one embedding to the fixed cohorts, then score each available depth.
+
+    Also returns each pair's aggregate AUROC per resample, by (pair, method, k).
+    """
     records = []
+    primary = defaultdict(list)
     embedding_samples, latents = load_embedding(folder)
     positions = validate_alignment(embedding_samples, cases, method)
     graphs = {}
@@ -348,11 +430,12 @@ def score_method(
         query_samples = labels.loc[query_ids]
         query_positive = query_samples[q_column].to_numpy(bool)
         pool_positive = labels.loc[pool_ids, case["biomarker"]].to_numpy(bool)
+        clusters = resampling_units(query_samples.patient_id)
         metrics = evaluate_alteration(
             graphs[key],
             query_positive,
             pool_positive,
-            resampling_units(query_samples.patient_id),
+            clusters,
             case["available_k"],
             tasks.bootstrap,
             tasks.permutations,
@@ -360,9 +443,18 @@ def score_method(
         )
         for k, metric in metrics.items():
             records.append(score_record(case, method, None, k, metric, tasks))
+            if case["tier"] == "primary":
+                counts = pool_positive[graphs[key][:, :k]].sum(axis=1)
+                primary[case["pair"], k].append((case["disease"], counts, query_positive, clusters))
         if progress:
             progress(f"{method}: {case['disease']}/{case['pair']}/{case['analysis']} scored")
-    return records
+    draws = {
+        (pair, method, k): pooled_draws(
+            cells, disease_weights([c[0] for c in cells], sizes[pair]), tasks.bootstrap, tasks.seed
+        )
+        for (pair, k), cells in primary.items()
+    }
+    return records, draws
 
 
 # --- Scores -------------------------------------------------------------------------------
@@ -390,6 +482,25 @@ def score(
 ) -> float:
     """AUROC at depth k."""
     return auroc(pool_mutant[neighbours[:, :k]].sum(axis=1), query_mutant)
+
+
+def pooled_draws(cells: list[tuple], weights: np.ndarray, n: int, seed: int) -> np.ndarray:
+    """The weighted mean AUROC over ``n`` joint resamples, each cancer resampled within itself.
+
+    ``cells`` holds each analysis's (disease, mutant-neighbour counts, query labels, query
+    clusters), ``weights`` each analysis's weight. One resample draws every cluster once for
+    all analyses of its cancer, so a cluster drawn twice counts twice in each analysis it is
+    in; the same clusters and seed give every method the same resamples.
+    """
+    ends = np.cumsum([len(c[1]) for c in cells])[:-1]
+
+    def statistic(w: np.ndarray) -> float:
+        parts = np.split(w, ends)
+        return float(weights @ [auroc(c[1], c[2], part) for c, part in zip(cells, parts)])
+
+    strata = np.concatenate([[c[0]] * len(c[1]) for c in cells])
+    clusters = np.concatenate([c[3] for c in cells])
+    return bootstrap(statistic, strata, clusters, n, np.random.default_rng(seed))
 
 
 def permutation_p(
