@@ -9,11 +9,12 @@ Mutant and wild-type queries share the disease and the pool, so 0.5 means the ne
 carry no information about the alteration beyond the disease, and a difference in
 prevalence between the two datasets cancels.
 
-Uncertainty comes from two resamplings that leave the embedding alone. Patients are
-bootstrapped (a patient's aliquots move together) for the 95% intervals, and the pool's
-labels are permuted for the p-values. A permutation keeps the neighbour graph, so a pool
-model that is everyone's neighbour is part of the null. Queries and pool are sorted by
-sample id first, so every method sees the same resamples and the same permutations.
+Uncertainty comes from two resamplings that leave the embedding alone. Query clusters are
+bootstrapped for the 95% intervals: a TCGA tumour's tissue source site, any other tumour's
+patient, so the samples that share a batch move together. The pool's labels are permuted
+for the p-values. A permutation keeps the neighbour graph, so a pool model that is
+everyone's neighbour is part of the null. Queries and pool are sorted by sample id first,
+so every method sees the same resamples and the same permutations.
 
 Two bounds come from the labels alone: ``random`` (AUROC 0.5) and ``oracle`` (every query
 retrieves models of its own status first).
@@ -29,9 +30,14 @@ from scipy.stats import false_discovery_control
 
 from mapping_benchmark.mutation_labels import validate_labels, validate_sample_ids
 from mapping_benchmark.mutation_tasks import Analysis, Disease, Tasks
-from mapping_benchmark.retrieval import Bound, nearest_neighbours
-
-Interval = tuple[float, float]
+from mapping_benchmark.retrieval import (
+    Bound,
+    Interval,
+    bootstrap,
+    interval,
+    nearest_neighbours,
+    resampling_units,
+)
 
 
 class KResult(BaseModel):
@@ -346,7 +352,7 @@ def score_method(
             graphs[key],
             query_positive,
             pool_positive,
-            query_samples.patient_id.to_numpy(str),
+            resampling_units(query_samples.patient_id),
             case["available_k"],
             tasks.bootstrap,
             tasks.permutations,
@@ -386,33 +392,6 @@ def score(
     return auroc(pool_mutant[neighbours[:, :k]].sum(axis=1), query_mutant)
 
 
-def bootstrap(
-    neighbours: np.ndarray,
-    query_mutant: np.ndarray,
-    pool_mutant: np.ndarray,
-    patients: np.ndarray,
-    k: int,
-    n: int,
-    rng: np.random.Generator,
-) -> Interval | None:
-    """95% percentile interval of the AUROC over patient-cluster resamples of the queries.
-
-    A resample that lacks mutant or wild-type queries has no AUROC and is skipped.
-    """
-    counts = pool_mutant[neighbours[:, :k]].sum(axis=1)
-    _, cluster = np.unique(patients, return_inverse=True)
-    n_clusters = cluster.max() + 1
-    draws = []
-    for _ in range(n):
-        weights = np.bincount(rng.integers(0, n_clusters, n_clusters), minlength=n_clusters)[
-            cluster
-        ].astype(float)
-        draws.append(auroc(counts, query_mutant, weights))
-    draws = np.asarray(draws, float)
-    draws = draws[np.isfinite(draws)]
-    return tuple(float(v) for v in np.percentile(draws, [2.5, 97.5])) if len(draws) else None
-
-
 def permutation_p(
     neighbours: np.ndarray,
     query_mutant: np.ndarray,
@@ -445,7 +424,7 @@ def evaluate_alteration(
     neighbours: np.ndarray | None,
     query_mutant: np.ndarray,
     pool_mutant: np.ndarray,
-    patients: np.ndarray,
+    clusters: np.ndarray,
     k_values: list[int],
     n_bootstrap: int,
     n_permutations: int,
@@ -463,13 +442,21 @@ def evaluate_alteration(
         if bound:
             out[k] = bound_metrics(bound, query_mutant, pool_mutant, k)
             continue
-        auc = score(neighbours, query_mutant, pool_mutant, k)
+        counts = pool_mutant[neighbours[:, :k]].sum(axis=1)
+        auc = auroc(counts, query_mutant)
         rng = np.random.default_rng(seed)
-        ci = bootstrap(neighbours, query_mutant, pool_mutant, patients, k, n_bootstrap, rng)
+        # A resample that lacks mutant or wild-type queries has no AUROC and is skipped.
+        draws = bootstrap(
+            lambda w: auroc(counts, query_mutant, w),
+            np.zeros(len(clusters)),
+            clusters,
+            n_bootstrap,
+            rng,
+        )
         p = (
             permutation_p(neighbours, query_mutant, pool_mutant, k, auc, n_permutations, rng)
             if n_permutations
             else None
         )
-        out[k] = KResult(auroc=auc, auroc_ci=ci, auroc_p=p)
+        out[k] = KResult(auroc=auc, auroc_ci=interval(draws), auroc_p=p)
     return out

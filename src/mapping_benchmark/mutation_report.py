@@ -74,7 +74,8 @@ def report_protocol(tasks: Tasks) -> list[str]:
         "positive MSI screens; this does not call remaining unknown samples MSS. "
         "A selected positive takes precedence over other gene calls. "
         "Sequence consequences do not establish biallelic or functional loss.</p>",
-        f"<p>Intervals use {tasks.bootstrap} patient-cluster bootstrap draws, conditional "
+        f"<p>Intervals use {tasks.bootstrap} cluster bootstrap draws (a TCGA tumour's "
+        "tissue source site, any other tumour's patient), conditional "
         f"on the fixed model catalogue. One-sided p-values use {tasks.permutations} "
         "permutations of pool labels and the plus-one correction. BH q-values are "
         "computed separately for primary and exploratory tiers, across all scored "

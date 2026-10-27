@@ -1,6 +1,7 @@
 """Overview and per-cancer figures with one fixed worst-to-best method order.
 
-Ontology/donor use Random-to-Oracle bars. Mutation uses AUROC and bootstrap intervals.
+Ontology and donor use Random-to-Oracle bars, mutation uses AUROC. Every method carries its
+bootstrap 95% interval.
 """
 
 import argparse
@@ -25,7 +26,10 @@ MUTED = "#777"
 
 
 def plot_bars(fig, panels, methods, style) -> None:
-    """One panel per axis, one row per pair: the Random-to-Oracle bar and each method."""
+    """One panel per axis, one row per pair: the Random-to-Oracle bar and each method.
+
+    Methods are spread across the bar's height so that their 95% intervals stay apart.
+    """
     heights = [max(1.0, f["row"].nunique() * 0.55 + 0.6) for _, _, f in panels]
     axes = fig.subplots(len(panels), 1, squeeze=False,
                         gridspec_kw={"height_ratios": heights})
@@ -34,14 +38,20 @@ def plot_bars(fig, panels, methods, style) -> None:
         frame = frame[frame["k"] == k]
         rows = list(dict.fromkeys(frame["row"]))
         for y, row in enumerate(rows):
-            cell = frame[frame["row"] == row].set_index("method")["score"]
+            cells = frame[frame["row"] == row].set_index("method")
+            cell = cells["score"]
             lo, hi = cell.get("Random", 0.0), cell.get("Oracle", 1.0)
             ax.barh(y, hi - lo, left=lo, height=0.6, color="#ececec", edgecolor="#555")
             ax.text(hi + 0.01, y, f"{hi:.2f}", va="center", fontsize=8)
-            for method in methods:
+            for i, method in enumerate(methods):
                 if method in cell:
-                    ax.plot(cell[method], y, style[method][0], color=style[method][1],
-                            markersize=7, label=method if y == 0 else None)
+                    m = cells.loc[method]
+                    errors = ([[max(0, m.score - m.ci_low)], [max(0, m.ci_high - m.score)]]
+                              if np.isfinite(m.ci_low) and np.isfinite(m.ci_high) else None)
+                    ax.errorbar(m.score, y + 0.5 * ((i + 0.5) / len(methods) - 0.5),
+                                xerr=errors, fmt=style[method][0], color=style[method][1],
+                                markersize=5, elinewidth=1.2,
+                                label=method if y == 0 else None)
         ax.set_yticks(range(len(rows)), rows)
         ax.invert_yaxis()
         ax.set_xlim(0, 1.08)

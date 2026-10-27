@@ -84,7 +84,7 @@ q < 0.05 against shuffled database labels.
 | metaprism_to_depmap | LUAD | KRAS | 0.663* | 0.683* | 0.763* | 0.500 | 1.000 |
 | metaprism_to_depmap | LUAD | SMARCA4 | 0.893* | 0.894* | 0.926* | 0.500 | 1.000 |
 | metaprism_to_depmap | LUAD | STK11 | 0.879* | 0.822* | 0.927* | 0.500 | 1.000 |
-| tcga_to_depmap | BRCA | PIK3CA_core | 0.538 | 0.588 | 0.666* | 0.500 | 1.000 |
+| tcga_to_depmap | BRCA | PIK3CA_core | 0.538 | 0.588 | 0.666 | 0.500 | 1.000 |
 | tcga_to_depmap | BRCA | TP53_lof | 0.804* | 0.811* | 0.821* | 0.500 | 1.000 |
 | tcga_to_depmap | COAD | BRAF_V600E | 0.932* | 0.660 | 0.849* | 0.500 | 1.000 |
 | tcga_to_depmap | COAD | KRAS_MSS | 0.633 | 0.447 | 0.708* | 0.500 | 1.000 |
@@ -158,13 +158,21 @@ the gene, or a cell line that lost both copies of it, is unknown and left out. F
 query, s is the share of its ten neighbours that are mutant. AUROC@10 is the probability
 that a mutant query's s exceeds a wild-type query's: both share the disease and the
 database, so 0.5 means the neighbours know nothing about the alteration beyond the
-disease. Intervals resample patients; p-values shuffle the database's labels, and
-Benjamini–Hochberg q-values are computed separately for the primary and exploratory
-analyses. An analysis is scored only when it has at least 10 mutant and 10 wild-type
-samples on each side.
+disease. P-values shuffle the database's labels, and Benjamini–Hochberg q-values are
+computed separately for the primary and exploratory analyses. An analysis is scored only
+when it has at least 10 mutant and 10 wild-type samples on each side.
 
 *Donor.* Each patient in the Aphrodite study has a tumour sample and one or two
 xenografts grown from it. A neighbour is worth 1 when it is the query's own xenograft.
+
+On every axis a method's 95% interval comes from 1,000 resamples of the queries, with the
+database fixed. Each cancer type (a MONDO label, or a mutation analysis's disease) is
+resampled within itself and keeps its weight, so the interval reflects which tumours were
+drawn, not how many of each type. A TCGA tumour is resampled with its tissue source site,
+whose tumours share a processing batch, and any other tumour with its patient. A label of
+a single such cluster has no spread of its own; all such labels share one stratum, where a
+label's weight follows its draws, so a patient drawn twice counts twice — on the donor
+axis, where each label is one donor, as two donors. Every method sees the same resamples.
 
 ## Data
 
@@ -225,15 +233,16 @@ results/mutation/                   results.json, scores.csv, counts.csv, sample
 results/summary.csv                 every score, one row per axis, pair, disease,
                                     alteration, method, k and metric
 results/summary.md                  one table per axis, methods as columns, bounds last
-results/summary.pdf, .png           ontology and donor as random-to-oracle bars
+results/summary.pdf, .png           ontology and donor as random-to-oracle bars, with
+                                    95% intervals
 results/summary_mutation.pdf, .png  AUROC with 95% intervals per alteration and pair
 results/mutation/{disease}/summary.pdf, .png   the same, one cancer type per figure
 ```
 
-Each ontology and donor JSON holds the score per k together with per-label scores and the
-number of query and database samples that were scored. The mutation `results.json` holds
-every disease and alteration with its exact query and database samples, counts,
-eligibility, intervals, p-values and q-values.
+Each ontology and donor JSON holds the score per k together with its 95% interval,
+per-label scores and the number of query and database samples that were scored. The
+mutation `results.json` holds every disease and alteration with its exact query and
+database samples, counts, eligibility, intervals, p-values and q-values.
 
 ## Adding a method
 

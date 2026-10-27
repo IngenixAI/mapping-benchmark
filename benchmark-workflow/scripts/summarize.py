@@ -1,9 +1,10 @@
 """Collect every result JSON into one table.
 
 ``summary.csv`` has one row per (axis, pair, disease, alteration, method, k, metric):
-simGIC on the ontology axis, precision on the donor axis, and AUROC on the mutation axis,
-with its 95% interval, permutation p-value and the common evaluator's Benjamini-Hochberg
-q-value. Corrections remain separate for primary/exploratory tiers across the declared run.
+simGIC on the ontology axis and precision on the donor axis, each with its 95% interval,
+and AUROC on the mutation axis, with its 95% interval, permutation p-value and the common
+evaluator's Benjamini-Hochberg q-value. Corrections remain separate for
+primary/exploratory tiers across the declared run.
 ``summary.md`` shows tables per axis and tier, methods as columns and bounds last.
 A star marks q < 0.05; unavailable/ineligible scores are shown as —, with counts and reasons.
 """
@@ -32,8 +33,10 @@ def rows(results_dir: Path, inputs: list[Path]):
         method = path.stem
         if axis in SCORE:
             for k, metrics in result["metrics"].items():
+                ci = metrics.get("precision_ci") or (np.nan, np.nan)
                 yield {"axis": axis, "pair": pair, "method": method, "k": int(k),
                        "metric": SCORE[axis], "score": round(metrics["precision"], 4),
+                       "ci_low": round(ci[0], 4), "ci_high": round(ci[1], 4),
                        "eligible": True, "n_query": result["n_query"],
                        "n_database": result["n_database"]}
 

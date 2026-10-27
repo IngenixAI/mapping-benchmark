@@ -3,7 +3,16 @@
 import numpy as np
 import pytest
 
-from mapping_benchmark.retrieval import LABEL_WEIGHT, Pool, Relevance, evaluate
+from mapping_benchmark.retrieval import (
+    LABEL_WEIGHT,
+    MIN_CLUSTERS,
+    Pool,
+    Relevance,
+    bootstrap,
+    evaluate,
+    precision_at_k,
+    resampling_units,
+)
 
 # Fixed expectations; do not regenerate from the implementation under test.
 EXPECTED_PRECISION = {1: 1.0, 3: 0.3888888888888889, 5: 0.5666666666666665}
@@ -77,3 +86,61 @@ def test_unlabelled_rows_are_dropped_and_a_single_label_database_is_refused():
     assert (result.n_query, result.n_database) == (2, 2)
     with pytest.raises(ValueError, match="single label"):
         evaluate(query, pool(["a", "a"], [0, 1]), Relevance("binary"), [1])
+
+
+def test_interval_counts_a_donor_drawn_twice_as_two_donors():
+    # Each query is its own donor and label, as on the donor axis, so the interval must be
+    # that of a plain mean over resampled donors; recomputed label weights would shrink it.
+    rng = np.random.default_rng(1)
+    hits = rng.random(30) < 0.4
+    donors = np.array([f"d{i:02d}" for i in range(30)])
+    # A hit sits on its own donor's xenograft, a miss on the next donor's.
+    at = np.where(hits, np.arange(30), (np.arange(30) + 1) % 30)
+    query = pool(donors, at)
+    query.clusters = donors
+    database = pool(donors, np.arange(30))
+    result = evaluate(query, database, Relevance("binary"), [1], n_bootstrap=200, seed=3)
+    draw = np.random.default_rng(3)
+    expected = np.percentile(
+        [hits[(draw.random(30) * 30).astype(int)].mean() for _ in range(200)], [2.5, 97.5])
+    m = result.metrics[1]
+    assert m.precision == pytest.approx(hits.mean())
+    assert m.precision_ci == pytest.approx(tuple(expected))
+    bound = evaluate(query, database, Relevance("binary"), [1], "oracle", n_bootstrap=200)
+    assert bound.metrics[1].precision_ci is None
+
+
+def test_resamples_keep_each_stratum_and_move_a_cluster_together():
+    strata = np.array(["a", "a", "a", "b", "b", "b"])
+    clusters = np.array(["x", "x", "y", "z", "w", "v"])
+    seen = []
+    draws = bootstrap(lambda w: seen.append(w) or w @ np.arange(6), strata, clusters, 50,
+                      np.random.default_rng(0))
+    for w in seen:
+        assert w[0] == w[1]  # cluster x's two rows
+        assert w[0] + w[2] == 2 and w[3:].sum() == 3  # a draws its 2 clusters, b its 3
+    # The same rows in another order give the same resamples.
+    order = np.array([5, 2, 0, 4, 1, 3])
+    shuffled = bootstrap(lambda w: w @ np.arange(6)[order], strata[order], clusters[order], 50,
+                         np.random.default_rng(0))
+    assert np.array_equal(draws, shuffled)
+
+
+def test_label_shares_stay_fixed_unless_a_label_is_short_of_clusters():
+    # Every "a" query scores 1, every "b" query 0, so only the labels' shares could move.
+    n = MIN_CLUSTERS
+    gains = np.r_[np.ones(n), np.zeros(n)][:, None]
+    labels = np.array(["a"] * n + ["b"] * n)
+    m = precision_at_k(gains, labels, np.arange(2 * n), 200, seed=1)
+    assert m.precision == pytest.approx(0.5)
+    assert m.precision_ci == pytest.approx((0.5, 0.5))
+    # Labels of one query each share one stratum, and their weights follow the draws.
+    few = precision_at_k(np.array([[1.0], [0.0], [1.0], [0.0]]), np.array(list("abcd")),
+                         np.arange(4), 200, seed=1)
+    low, high = few.precision_ci
+    assert low < 0.5 < high
+
+
+def test_a_tcga_patient_is_resampled_with_its_tissue_source_site():
+    assert resampling_units(["TCGA-AB-1234", "TCGA-AB-5678", "MP-12", "d01"]).tolist() == [
+        "TCGA-AB", "TCGA-AB", "MP-12", "d01"]

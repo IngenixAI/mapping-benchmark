@@ -12,12 +12,23 @@ Two bounds are scored from the labels alone, which puts every method on a common
 
 * ``oracle`` returns, for each query, the most relevant database samples its label admits.
 * ``random`` is the expectation over a uniformly random draw of k database samples.
+
+A method's 95% interval resamples the query clusters within each label, as the mutation
+axis does within each cancer. A cluster is a TCGA tumour's tissue source site or any other
+tumour's patient, so the samples that share a batch move together. The database stays fixed,
+every label keeps its weight and its number of clusters, and every method sees the same
+resamples. A label of one cluster has no spread of its own to resample. It joins one
+stratum shared by all such labels, where a label's weight follows its draws, so a patient
+drawn twice counts twice. On the donor axis that is every label, as each is one donor; on
+MetaPRISM, every diagnosis of one patient.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal
 
 import numpy as np
+import pandas as pd
 from loguru import logger
 from pydantic import BaseModel
 from sklearn.neighbors import NearestNeighbors
@@ -25,8 +36,10 @@ from sklearn.neighbors import NearestNeighbors
 from mapping_benchmark.ontology import Ontology
 
 LABEL_WEIGHT = 0.5
+MIN_CLUSTERS = 2  # a label of one cluster has no spread of its own to resample
 Bound = Literal["oracle", "random"]
 Kind = Literal["binary", "simgic"]
+Interval = tuple[float, float]
 
 
 class Relevance:
@@ -61,24 +74,31 @@ class Relevance:
 
 @dataclass
 class Pool:
-    """One side of a retrieval task: an embedding row and a label per sample."""
+    """One side of a retrieval task: an embedding row, a label and a cluster per sample.
+
+    The cluster is the unit a bootstrap resamples. Without clusters every sample is its own.
+    """
 
     features: np.ndarray
     labels: np.ndarray
+    clusters: np.ndarray | None = None
 
     def __post_init__(self) -> None:
         self.labels = np.asarray(self.labels).astype(str)
-        if len(self.features) != len(self.labels):
-            raise ValueError("features and labels differ in length")
+        self.clusters = (np.arange(len(self.labels)) if self.clusters is None
+                         else np.asarray(self.clusters))
+        if not len(self.features) == len(self.labels) == len(self.clusters):
+            raise ValueError("features, labels and clusters differ in length")
 
     def labelled(self) -> "Pool":
         """Rows with a non-empty label."""
         keep = self.labels != ""
-        return Pool(self.features[keep], self.labels[keep])
+        return Pool(self.features[keep], self.labels[keep], self.clusters[keep])
 
 
 class KResult(BaseModel):
     precision: float
+    precision_ci: Interval | None = None
     per_label_precision: dict[str, float] = {}
 
 
@@ -98,9 +118,14 @@ def nearest_neighbours(query: np.ndarray, database: np.ndarray, k: int) -> np.nd
     return nn.kneighbors(query, n_neighbors=k)[1]
 
 
-def evaluate(query: Pool, database: Pool, relevance: Relevance,
-             k_values: list[int], bound: Bound | None = None) -> RetrievalResult:
-    """precision@k for every k, for an embedding or for one of the two bounds."""
+def evaluate(query: Pool, database: Pool, relevance: Relevance, k_values: list[int],
+             bound: Bound | None = None, n_bootstrap: int = 0,
+             seed: int = 0) -> RetrievalResult:
+    """precision@k for every k, for an embedding or for one of the two bounds.
+
+    An embedding's precision carries a 95% interval over ``n_bootstrap`` cluster
+    resamples; a bound, which reads no embedding, carries none.
+    """
     query, database = query.labelled(), database.labelled()
     q_vocab, q_code = np.unique(query.labels, return_inverse=True)
     db_vocab, db_code = np.unique(database.labels, return_inverse=True)
@@ -121,21 +146,80 @@ def evaluate(query: Pool, database: Pool, relevance: Relevance,
         gains = rel[q_code[:, None], db_code[neighbours]]
 
     return RetrievalResult(
-        metrics={k: precision_at_k(gains[:, :k], query.labels) for k in k_values},
+        metrics={k: precision_at_k(gains[:, :k], query.labels, query.clusters,
+                                   0 if bound else n_bootstrap, seed) for k in k_values},
         relevance=relevance.kind, bound=bound,
         n_query=len(query.labels), n_database=len(database.labels),
         n_query_labels=len(q_vocab), n_database_labels=len(db_vocab),
     )
 
 
-def precision_at_k(gains: np.ndarray, labels: np.ndarray) -> KResult:
+def precision_at_k(gains: np.ndarray, labels: np.ndarray, clusters: np.ndarray,
+                   n_bootstrap: int = 0, seed: int = 0) -> KResult:
     """Mean relevance per query, averaged per label, then over labels with weight n^0.5."""
     per_query = gains.mean(axis=1)
-    vocab, sizes = np.unique(labels, return_counts=True)
+    vocab, code, sizes = np.unique(labels, return_inverse=True, return_counts=True)
     per_label = np.array([per_query[labels == label].mean() for label in vocab])
     weights = sizes.astype(float) ** LABEL_WEIGHT
-    return KResult(precision=float(np.average(per_label, weights=weights)),
+    ci = None
+    if n_bootstrap:
+        # A label's weight n^0.5 spread over its n queries. Each stratum keeps the weight of
+        # its labels; the labels of a single cluster share stratum -1.
+        query_weight = weights[code] / sizes[code]
+        n_clusters = np.array([len(np.unique(clusters[code == i])) for i in range(len(vocab))])
+        strata = np.where(n_clusters[code] >= MIN_CLUSTERS, code, -1)
+        _, stratum = np.unique(strata, return_inverse=True)
+        share = np.bincount(stratum, query_weight)
+
+        def statistic(w: np.ndarray) -> float:
+            w = w * query_weight
+            return share @ (np.bincount(stratum, w * per_query) / np.bincount(stratum, w)) \
+                / share.sum()
+
+        ci = interval(bootstrap(statistic, strata, clusters, n_bootstrap,
+                                np.random.default_rng(seed)))
+    return KResult(precision=float(np.average(per_label, weights=weights)), precision_ci=ci,
                    per_label_precision=dict(zip(vocab.tolist(), per_label.tolist())))
+
+
+def resampling_units(patients) -> np.ndarray:
+    """A TCGA patient's tissue source site (barcode ``TCGA-XX``), any other patient as is.
+
+    A site's tumours share their collection and processing batch, so they are resampled
+    together.
+    """
+    patients = pd.Series(np.asarray(patients, str))
+    return patients.str.extract(r"^(TCGA-\w\w)-", expand=False).fillna(patients).to_numpy()
+
+
+def bootstrap(statistic: Callable[[np.ndarray], float], strata: np.ndarray,
+              clusters: np.ndarray, n: int, rng: np.random.Generator) -> np.ndarray:
+    """``statistic(weights)`` over ``n`` resamples of the clusters within each stratum.
+
+    Each resample draws every stratum's clusters with replacement, as many as it has, and
+    gives each row its cluster's multiplicity as a weight, so a cluster's rows move together.
+    A cluster belongs to one stratum. Strata and clusters are taken in sorted order, so the
+    same rows and seed give the same resamples in any row order. A resample without a score
+    is NaN.
+    """
+    _, s = np.unique(strata, return_inverse=True)
+    _, c = np.unique(clusters, return_inverse=True)
+    nested, cluster = np.unique(s * (c.max() + 1) + c, return_inverse=True)
+    stratum = nested // (c.max() + 1)
+    size = np.bincount(stratum)
+    first = np.cumsum(size) - size
+    draws = []
+    for _ in range(n):
+        drawn = first[stratum] + (rng.random(len(nested)) * size[stratum]).astype(int)
+        draws.append(statistic(np.bincount(drawn, minlength=len(nested))[cluster].astype(float)))
+    return np.array(draws, float)
+
+
+def interval(draws) -> Interval | None:
+    """95% percentile interval of the resamples that have a score."""
+    draws = np.asarray(draws, float)
+    draws = draws[np.isfinite(draws)]
+    return tuple(float(v) for v in np.percentile(draws, [2.5, 97.5])) if len(draws) else None
 
 
 def _ideal_gains(rel: np.ndarray, db_counts: np.ndarray, k: int) -> np.ndarray:

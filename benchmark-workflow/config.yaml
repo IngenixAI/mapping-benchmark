@@ -11,6 +11,7 @@ random_seed: 42
 # query's; the score is the mean over the k nearest neighbours (simGIC@k).
 ontology:
   k: 10
+  bootstrap: 1000  # query-cluster resamples for each method's 95% interval
   pairs:
     tcga_to_depmap:      {query: tcga,      database: depmap}
     metaprism_to_depmap: {query: metaprism, database: depmap}
@@ -26,6 +27,7 @@ mutation:
 # Axis 3 - donor. A neighbour is worth 1 when it comes from the same patient (precision@k).
 donor:
   k: 1
+  bootstrap: 1000
   pairs:
     aphrodite: {query: aphrodite_human, database: aphrodite_pdx}
 

@@ -342,6 +342,7 @@ rule evaluate:
         relevance=lambda wc: AXES[wc.axis]["relevance"],
         label_column=lambda wc: AXES[wc.axis]["label_column"],
         k=lambda wc: AXES[wc.axis]["k"],
+        bootstrap=lambda wc: AXES[wc.axis]["bootstrap"],
     log:
         "logs/evaluate_{axis}_{pair}_{method}.log",
     shell:
@@ -351,6 +352,7 @@ rule evaluate:
             --query-dataset {params.query} --database-dataset {params.database} \
             --relevance {params.relevance} --label-column {params.label_column} \
             --ontology {input.ontology} --k {params.k} \
+            --bootstrap {params.bootstrap} --seed {config[random_seed]} \
             --output {output} \
             2>&1 | tee {log}
         """
