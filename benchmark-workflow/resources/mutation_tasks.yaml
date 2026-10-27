@@ -6,7 +6,7 @@
 schema_version: 1
 k: [1, 5, 10]
 primary_k: 10
-bootstrap: 1000
+bootstrap: 10000  # the pair aggregates' comparisons with the baseline need this many
 permutations: 1000
 seed: 0
 eligibility:

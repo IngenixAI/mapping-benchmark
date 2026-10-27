@@ -23,11 +23,14 @@ Each pair's primary analyses are also summarised by one AUROC: the mean over the
 of each cancer, then over the cancers, a cancer with n query patients weighing n^0.5, as a
 label does on the ontology axis. Pairs stay apart, as they ask different questions (seen in
 training or not). Its interval resamples the query clusters within each cancer, once for
-all of its analyses, so analyses sharing patients move together.
+all of its analyses, so analyses sharing patients move together. Each method's aggregate
+is compared with the baseline's on the same resamples (``retrieval.compare``), and so is each
+analysis at the primary depth, those differences BH-corrected within each tier and pair.
 """
 
 from collections import defaultdict
 from collections.abc import Callable
+from operator import itemgetter
 from pathlib import Path
 
 import numpy as np
@@ -42,6 +45,7 @@ from mapping_benchmark.retrieval import (
     Bound,
     Interval,
     bootstrap,
+    compare,
     interval,
     nearest_neighbours,
     resampling_units,
@@ -52,6 +56,8 @@ class KResult(BaseModel):
     auroc: float
     auroc_ci: Interval | None = None
     auroc_p: float | None = None
+    # One AUROC per resample, in resample order, for comparisons with other methods.
+    auroc_draws: list[float] = []
 
 
 # Cohorts are fixed before loading any embedding method.
@@ -224,6 +230,12 @@ SCORE_COLUMNS = [
     "auroc_ci_high",
     "auroc_p",
     "auroc_q",
+    "baseline",
+    "delta",
+    "delta_ci_low",
+    "delta_ci_high",
+    "delta_p",
+    "delta_q",
     "fdr_family",
 ]
 
@@ -256,9 +268,12 @@ def correct_multiplicity(scores: pd.DataFrame, tasks: Tasks) -> pd.DataFrame:
 
     Each family spans all scored diseases, pairs and methods in this run. Sensitivity
     analyses and other depths retain raw p-values; they cannot enter the primary family.
+    The differences from the baseline are corrected within each pair of a family, as the
+    pairs are compared with the baseline one by one, so a pair with clear differences does
+    not lower the bar for another.
     """
     scores = scores.copy()
-    scores["auroc_q"] = np.nan
+    scores["auroc_q"] = scores["delta_q"] = np.nan
     scores["fdr_family"] = None
     for tier in ("primary", "exploratory"):
         family = scores.tier.eq(tier) & scores.k.eq(tasks.primary_k) & scores.bound.isna()
@@ -267,6 +282,10 @@ def correct_multiplicity(scores: pd.DataFrame, tasks: Tasks) -> pd.DataFrame:
         if keep.any():
             scores.loc[keep, "auroc_q"] = false_discovery_control(
                 scores.loc[keep, "auroc_p"].to_numpy(float), method="bh"
+            )
+        for _, cells in scores[family & scores.delta_p.notna()].groupby("pair"):
+            scores.loc[cells.index, "delta_q"] = false_discovery_control(
+                cells.delta_p.to_numpy(float), method="bh"
             )
     return scores[SCORE_COLUMNS]
 
@@ -282,6 +301,11 @@ AGGREGATE_COLUMNS = [
     "auroc",
     "auroc_ci_low",
     "auroc_ci_high",
+    "baseline",
+    "delta",
+    "delta_ci_low",
+    "delta_ci_high",
+    "delta_p",
 ]
 
 
@@ -305,11 +329,16 @@ def disease_weights(diseases, sizes: dict[str, int]) -> np.ndarray:
 
 
 def aggregate(
-    scores: pd.DataFrame, draws: dict, tasks: Tasks, sizes: dict[str, dict[str, int]]
+    scores: pd.DataFrame,
+    draws: dict,
+    tasks: Tasks,
+    sizes: dict[str, dict[str, int]],
+    baseline: str | None = None,
 ) -> pd.DataFrame:
     """One AUROC per pair, method and depth over the primary analyses.
 
-    ``draws`` holds each method's aggregate per resample, by (pair, method, k).
+    ``draws`` holds each method's aggregate per resample, by (pair, method, k). At the
+    primary depth, every method but the baseline is also compared with it.
     """
     records = []
     primary = scores[scores.tier.eq("primary")]
@@ -329,6 +358,12 @@ def aggregate(
                 "auroc_ci_high": high,
             }
         )
+    observed = {(r["pair"], r["method"], r["k"]): r["auroc"] for r in records}
+    for r in records:
+        key, reference = (r["pair"], r["method"], r["k"]), (r["pair"], baseline, r["k"])
+        if r["primary_depth"] and r["method"] != baseline and key in draws and reference in draws:
+            r.update(baseline=baseline, **compare(draws[key], draws[reference],
+                                                  r["auroc"] - observed[reference]))
     return pd.DataFrame(records, columns=AGGREGATE_COLUMNS)
 
 
@@ -337,10 +372,13 @@ def evaluate(
     tasks: Tasks,
     methods: dict[str, Path],
     progress: Callable[[str], None] | None = None,
+    baseline: str | None = None,
 ) -> tuple[list[dict], pd.DataFrame, pd.DataFrame]:
     """Select common cohorts, score all methods and bounds, then correct testing families.
 
     Also returns each pair's primary analyses as one AUROC per method (``aggregate``).
+    At the primary depth, each analysis and each aggregate is compared with the
+    ``baseline`` method's.
     """
     cases = select_cases(labels, tasks)
     sizes = cancer_sizes(labels, cases)
@@ -354,9 +392,18 @@ def evaluate(
         records.extend(method_records)
         draws |= method_draws
 
+    # Each analysis against the baseline's on the same resamples; the draws go no further.
+    cell = itemgetter("disease", "pair", "analysis")
+    reference = {cell(r): r for r in records if r["method"] == baseline and "draws" in r}
+    for r in records:
+        ref = reference.get(cell(r))
+        if ref and r["method"] != baseline and "draws" in r:
+            r.update(baseline=baseline, **compare(r["draws"], ref["draws"],
+                                                  r["auroc"] - ref["auroc"]))
+
     # Correct across the declared run after collecting all methods.
     scores = correct_multiplicity(pd.DataFrame(records, columns=SCORE_COLUMNS), tasks)
-    return cases, scores, aggregate(scores, draws, tasks, sizes)
+    return cases, scores, aggregate(scores, draws, tasks, sizes, baseline)
 
 
 def score_bounds(
@@ -443,6 +490,8 @@ def score_method(
         )
         for k, metric in metrics.items():
             records.append(score_record(case, method, None, k, metric, tasks))
+            if k == tasks.primary_k and metric.auroc_draws:
+                records[-1]["draws"] = metric.auroc_draws
             if case["tier"] == "primary":
                 counts = pool_positive[graphs[key][:, :k]].sum(axis=1)
                 primary[case["pair"], k].append((case["disease"], counts, query_positive, clusters))
@@ -569,5 +618,6 @@ def evaluate_alteration(
             if n_permutations
             else None
         )
-        out[k] = KResult(auroc=auc, auroc_ci=interval(draws), auroc_p=p)
+        out[k] = KResult(auroc=auc, auroc_ci=interval(draws), auroc_p=p,
+                         auroc_draws=draws.tolist())
     return out

@@ -184,7 +184,7 @@ cover different cancers.
 *Donor.* Each patient in the Aphrodite study has a tumour sample and one or two
 xenografts grown from it. A neighbour is worth 1 when it is the query's own xenograft.
 
-On every axis a method's 95% interval comes from 1,000 resamples of the queries, with the
+On every axis a method's 95% interval comes from 10,000 resamples of the queries, with the
 database fixed. Each cancer type (a MONDO label, or a mutation analysis's disease) is
 resampled within itself and keeps its weight, so the interval reflects which tumours were
 drawn, not how many of each type. A TCGA tumour is resampled with its tissue source site,
@@ -192,6 +192,17 @@ whose tumours share a processing batch, and any other tumour with its patient. A
 a single such cluster has no spread of its own; all such labels share one stratum, where a
 label's weight follows its draws, so a patient drawn twice counts twice — on the donor
 axis, where each label is one donor, as two donors. Every method sees the same resamples.
+
+*Comparing methods.* Every method is compared with the correlation baseline (`baseline` in
+the config) on each pair's score: in every resample both are scored on the same tumours, and
+the difference gives a 95% interval and a two-sided p-value. The p-values are
+Holm-corrected within each axis, and a corrected p < 0.05 makes a method better or worse
+than the baseline on that pair; otherwise it is undecided (`results/comparisons.csv`). Each
+mutation analysis is compared the same way at the primary depth, as a breakdown of the
+pair's verdict: those p-values get Benjamini–Hochberg q-values within each pair and tier
+(`delta_q` in `results/summary.csv`). So is each query diagnosis on the ontology axis that
+has at least ten resampling clusters, BH within each pair. These tests cover which tumours
+were sampled; the database and the training seed are held fixed.
 
 ## Data
 
@@ -251,7 +262,11 @@ results/mutation/                   results.json, scores.csv, aggregate.csv (the
                                     variant_evidence.csv, manifest.json (input hashes),
                                     report.html and explorer.html (offline, interactive)
 results/summary.csv                 every score, one row per axis, pair, disease,
-                                    alteration, method, k and metric
+                                    alteration, method, k and metric (ontology also per
+                                    query diagnosis), with intervals, q-values and the
+                                    difference from the baseline
+results/comparisons.csv             every method against the baseline per axis and pair:
+                                    difference, 95% interval, Holm-corrected p and verdict
 results/summary.md                  one table per axis, methods as columns, bounds last
 results/summary.pdf, .png           ontology, the mean AUROC per mutation pair and donor
                                     as random-to-oracle bars, with 95% intervals

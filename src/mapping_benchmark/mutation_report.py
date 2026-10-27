@@ -80,7 +80,9 @@ def report_protocol(tasks: Tasks) -> list[str]:
         "permutations of pool labels and the plus-one correction. BH q-values are "
         "computed separately for primary and exploratory tiers, across all scored "
         "diseases, pairs and methods at the primary depth in this run. Sensitivity "
-        "analyses and other depths have raw p-values only. "
+        "analyses and other depths have raw p-values only. At the primary depth, each "
+        "method's difference from the baseline (<code>delta</code>) has its interval and "
+        "two-sided p-value over the same draws, and BH q-values within each tier and pair. "
         "Exploratory results support hypothesis generation.</p>",
         "<p>AUROC random reference: 0.5. Oracle values use each case's actual labelled pool. "
         "All methods use identical per-case sample IDs; missing embeddings fail the run.</p>",
@@ -106,7 +108,9 @@ def write_report(
             f"<h2>Primary analyses per pair at k={tasks.primary_k}</h2>",
             "<p>The mean AUROC of each cancer's primary analyses, then the mean over the "
             "cancers in the pair, a cancer with n query patients weighing n^0.5. Intervals "
-            "resample the query clusters within each cancer, once for all of its analyses."
+            "resample the query clusters within each cancer, once for all of its analyses. "
+            "<code>delta</code> is the difference from the baseline method, with the "
+            "interval and two-sided p-value of that difference over the same resamples."
             "</p><div class='scroll'>",
             aggregate[aggregate.k.eq(tasks.primary_k)].round(4).to_html(index=False),
             "</div>",
@@ -171,7 +175,8 @@ def build_manifest(tasks: Tasks, methods: list[str], provenance: dict) -> dict:
             for p in ("mapping-benchmark", "numpy", "pandas", "scipy", "scikit-learn", "pydantic")
         },
         "fdr_policy": "BH on AUROC separately by tier (primary/exploratory), "
-        "all diseases/pairs/methods at primary_k in this run",
+        "all diseases/pairs/methods at primary_k in this run; BH on the difference "
+        "from the baseline separately by tier and pair",
     }
 
 

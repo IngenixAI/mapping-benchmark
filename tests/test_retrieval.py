@@ -6,9 +6,11 @@ import pytest
 from mapping_benchmark.retrieval import (
     LABEL_WEIGHT,
     MIN_CLUSTERS,
+    MIN_TESTED_CLUSTERS,
     Pool,
     Relevance,
     bootstrap,
+    compare,
     evaluate,
     precision_at_k,
     resampling_units,
@@ -134,6 +136,8 @@ def test_label_shares_stay_fixed_unless_a_label_is_short_of_clusters():
     m = precision_at_k(gains, labels, np.arange(2 * n), 200, seed=1)
     assert m.precision == pytest.approx(0.5)
     assert m.precision_ci == pytest.approx((0.5, 0.5))
+    assert len(m.precision_draws) == 200
+    assert m.per_label_draws == {}  # too few clusters to compare methods label by label
     # Labels of one query each share one stratum, and their weights follow the draws.
     few = precision_at_k(np.array([[1.0], [0.0], [1.0], [0.0]]), np.array(list("abcd")),
                          np.arange(4), 200, seed=1)
@@ -141,6 +145,30 @@ def test_label_shares_stay_fixed_unless_a_label_is_short_of_clusters():
     assert low < 0.5 < high
 
 
+def test_comparison_with_a_reference_pairs_up_the_resamples():
+    reference = np.linspace(0.3, 0.5, 9)
+    better = compare(reference + 0.01, reference, 0.01)
+    assert better["delta"] == 0.01
+    assert better["delta_ci_low"] == pytest.approx(0.01)
+    assert better["delta_ci_high"] == pytest.approx(0.01)
+    assert better["delta_p"] == pytest.approx(2 / 10)  # no resample on the other side
+    assert compare(reference, reference, 0.0)["delta_p"] == 1.0
+    assert compare([np.nan], [0.1], 0.0) == {}
+
+
 def test_a_tcga_patient_is_resampled_with_its_tissue_source_site():
     assert resampling_units(["TCGA-AB-1234", "TCGA-AB-5678", "MP-12", "d01"]).tolist() == [
         "TCGA-AB", "TCGA-AB", "MP-12", "d01"]
+
+
+def test_a_label_with_enough_clusters_keeps_its_own_resamples():
+    rng = np.random.default_rng(0)
+    n = MIN_TESTED_CLUSTERS
+    gains = rng.random((2 * n + 1, 1))
+    labels = np.array(["a"] * 2 * n + ["b"])
+    m = precision_at_k(gains, labels, np.arange(2 * n + 1), 200, seed=1)
+    assert list(m.per_label_draws) == ["a"] and len(m.per_label_draws["a"]) == 200
+    # The same resamples as the score's: b, of one cluster, is drawn every time, so each
+    # resample's score is a's draw and b's gain at their weights.
+    a, wa = np.array(m.per_label_draws["a"]), (2 * n) ** LABEL_WEIGHT
+    assert m.precision_draws == pytest.approx((wa * a + gains[-1, 0]) / (wa + 1), abs=2e-6)

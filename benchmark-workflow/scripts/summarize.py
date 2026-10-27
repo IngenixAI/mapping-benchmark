@@ -3,12 +3,22 @@
 ``summary.csv`` has one row per (axis, pair, disease, alteration, method, k, metric):
 simGIC on the ontology axis and precision on the donor axis, each with its 95% interval,
 and AUROC on the mutation axis, with its 95% interval, permutation p-value and the common
-evaluator's Benjamini-Hochberg q-value. Corrections remain separate for
-primary/exploratory tiers across the declared run. Each mutation pair's primary analyses
+evaluator's Benjamini-Hochberg q-value, and at the primary depth its difference from the
+baseline with that difference's interval, p-value and q-value. Corrections remain separate
+for primary/exploratory tiers across the declared run. Each mutation pair's primary analyses
 also get one row per method and k, metric ``mean AUROC``: the mean per cancer, then over
 cancers, with its interval.
+The ontology score per query diagnosis (MONDO id in ``disease``) has metric
+``simGIC per cancer``, without an interval; a diagnosis with enough clusters to resample
+carries its difference from the baseline, with q-values within each pair.
 ``summary.md`` shows tables per axis and tier, methods as columns and bounds last.
 A star marks q < 0.05; unavailable/ineligible scores are shown as —, with counts and reasons.
+
+``comparisons.csv`` compares every method with the baseline on each pair's score: the
+difference, its 95% interval and two-sided p-value over the same resamples, the p-value
+Holm-corrected within each axis, and a verdict, better or worse than the baseline when the
+corrected p < 0.05 and undecided otherwise. The mutation axis enters with each pair's
+primary aggregate at the primary depth.
 """
 
 import argparse
@@ -17,10 +27,14 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from scipy.stats import false_discovery_control
+
+from mapping_benchmark.retrieval import compare
 
 BOUNDS = ["Random", "Oracle"]
 SCORE = {"ontology": "simGIC", "donor": "precision"}
 Q_STAR = 0.05
+ALPHA = 0.05  # familywise, within each axis
 
 
 def rows(results_dir: Path, inputs: list[Path]):
@@ -41,6 +55,11 @@ def rows(results_dir: Path, inputs: list[Path]):
                        "ci_low": round(ci[0], 4), "ci_high": round(ci[1], 4),
                        "eligible": True, "n_query": result["n_query"],
                        "n_database": result["n_database"]}
+                if axis == "ontology":  # the score per query diagnosis, before the label weights
+                    for label, value in metrics.get("per_label_precision", {}).items():
+                        yield {"axis": axis, "pair": pair, "method": method, "k": int(k),
+                               "metric": "simGIC per cancer", "disease": label,
+                               "score": round(value, 4), "eligible": True}
 
 
 def mutation_rows(result: dict):
@@ -70,7 +89,7 @@ def mutation_rows(result: dict):
             "score": score["auroc"], "ci_low": score["auroc_ci_low"],
             "ci_high": score["auroc_ci_high"], "p_value": score.get("auroc_p"),
             "q_value": score.get("auroc_q"), "fdr_family": score["fdr_family"],
-        }
+        } | {key: score.get(key) for key in [*DELTA, "delta_q"]}
     for row in result.get("aggregate", []):
         yield {"axis": "mutation", "pair": row["pair"], "disease": row["diseases"],
                "alteration": f"{row['n_analyses']} primary analyses", "metric": "mean AUROC",
@@ -86,8 +105,71 @@ def mutation_rows(result: dict):
                                                   "p_value": np.nan}
 
 
+DELTA = ["delta", "delta_ci_low", "delta_ci_high", "delta_p"]
+LABEL_KEY = ["axis", "pair", "k", "method", "disease"]
+
+
+def comparisons(results_dir: Path, inputs: list[Path],
+                baseline: str) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Every method against the baseline, Holm-corrected within each axis; and per label,
+    where a label keeps its own resamples, BH-corrected within each pair."""
+    found, labels, draws = [], [], {}
+    for path in sorted(inputs):
+        result = json.loads(path.read_text())
+        if "cases" in result and "tasks" in result and "scores" in result:
+            for row in result.get("aggregate", []):
+                if row.get("delta_p") is not None:
+                    assert row["baseline"] == baseline, f"mutation baseline is {row['baseline']}"
+                    found.append({"axis": "mutation", "pair": row["pair"], "k": row["k"],
+                                  "method": row["method"], "score": row["auroc"]}
+                                 | {key: row[key] for key in DELTA})
+            continue
+        axis, pair = path.resolve().relative_to(results_dir.resolve()).parts[:2]
+        for k, metrics in result["metrics"].items():
+            if metrics.get("precision_draws"):
+                draws.setdefault((axis, pair, int(k)), {})[path.stem] = metrics | {
+                    "n_query": result["n_query"]}
+    for (axis, pair, k), methods in draws.items():
+        reference = methods.get(baseline)
+        for method, m in methods.items():
+            if reference and method != baseline:
+                # Resamples pair up only when both methods scored the same queries.
+                if m["n_query"] != reference["n_query"]:
+                    raise ValueError(f"{method} and {baseline} score different queries on {pair}")
+                found.append({"axis": axis, "pair": pair, "k": k, "method": method,
+                              "score": m["precision"]}
+                             | compare(m["precision_draws"], reference["precision_draws"],
+                                       m["precision"] - reference["precision"]))
+                for label, label_draws in m.get("per_label_draws", {}).items():
+                    delta = (m["per_label_precision"][label]
+                             - reference["per_label_precision"][label])
+                    labels.append({"axis": axis, "pair": pair, "k": k, "method": method,
+                                   "disease": label}
+                                  | compare(label_draws, reference["per_label_draws"][label],
+                                            delta))
+    per_label = pd.DataFrame(labels, columns=[*LABEL_KEY, *DELTA]).dropna(subset=["delta_p"])
+    per_label["delta_q"] = per_label.groupby(["axis", "pair", "k"]).delta_p.transform(
+        lambda p: false_discovery_control(p, method="bh"))
+    frame = pd.DataFrame(found, columns=["axis", "pair", "k", "method", "score", *DELTA])
+    frame = frame.dropna(subset=["delta_p"])
+    frame.insert(4, "baseline", baseline)
+    frame.insert(6, "baseline_score", frame.score - frame.delta)
+    frame["p_holm"] = frame.groupby("axis").delta_p.transform(holm)
+    frame["verdict"] = np.select([frame.p_holm.ge(ALPHA), frame.delta.gt(0)],
+                                 ["undecided", "better"], "worse")
+    return frame.sort_values(["axis", "pair", "k", "method"], ignore_index=True), per_label
+
+
+def holm(p: pd.Series) -> pd.Series:
+    """Holm-adjusted p-values: the i-th smallest of m times m - i + 1, kept monotone."""
+    ordered = p.sort_values()
+    adjusted = (ordered * np.arange(len(ordered), 0, -1)).cummax().clip(upper=1)
+    return adjusted.reindex(p.index)
+
+
 COLUMNS = ["axis", "pair", "disease", "alteration", "class", "method", "k", "metric", "score",
-           "ci_low", "ci_high", "p_value", "q_value", "eligible", "n_query", "n_query_mutant",
+           "ci_low", "ci_high", "p_value", "q_value", *DELTA, "delta_q", "eligible", "n_query",
+           "n_query_mutant",
            "n_database", "n_database_mutant", "tier", "stratum", "primary_depth",
            "fdr_family", "statistics_source", "ineligible_reason"]
 
@@ -104,7 +186,7 @@ def markdown(summary: pd.DataFrame) -> str:
 
 def _retrieval(axis: str, frame: pd.DataFrame) -> list[str]:
     return [f"## {axis.capitalize()} axis ({SCORE[axis]}@k)\n",
-            _table(_pivot(frame, ["pair", "k"]))]
+            _table(_pivot(frame[frame["metric"] == SCORE[axis]], ["pair", "k"]))]
 
 
 def _mutation(_: str, frame: pd.DataFrame) -> list[str]:
@@ -140,6 +222,20 @@ def _mutation(_: str, frame: pd.DataFrame) -> list[str]:
     return out
 
 
+def comparisons_markdown(frame: pd.DataFrame) -> str:
+    if frame.empty:
+        return ""
+    table = frame.assign(
+        delta=[f"{d:+.4f} [{lo:+.4f}, {hi:+.4f}]" for d, lo, hi in
+               zip(frame.delta, frame.delta_ci_low, frame.delta_ci_high)],
+        p_holm=[f"{p:.4f}" for p in frame.p_holm])
+    return "\n".join([
+        f"## Against the baseline ({frame.baseline.iloc[0]})\n",
+        _table(table[["axis", "pair", "k", "method", "delta", "p_holm", "verdict"]]),
+        "Difference from the baseline with its 95% interval over the same resamples; "
+        f"two-sided p-values Holm-corrected within each axis; verdict at p < {ALPHA}.\n"])
+
+
 def _cell(score: float, q: float, eligible: bool) -> str:
     if pd.isna(score):
         return "—"
@@ -170,7 +266,11 @@ def main() -> None:
                         help="Current workflow result files; excludes stale files from older runs")
     parser.add_argument("--csv", type=Path, required=True)
     parser.add_argument("--markdown", type=Path, required=True)
+    parser.add_argument("--baseline", help="Method every other method is compared with")
+    parser.add_argument("--comparisons", type=Path, help="CSV of the comparisons; needs --baseline")
     args = parser.parse_args()
+    if bool(args.baseline) != bool(args.comparisons):
+        parser.error("--baseline and --comparisons go together")
 
     summary = pd.DataFrame(list(rows(args.results_dir, args.inputs)))
     if summary.empty:
@@ -180,9 +280,20 @@ def main() -> None:
     summary[text_columns] = summary[text_columns].fillna("")
     summary = summary.sort_values(
         ["axis", "pair", "disease", "alteration", "k", "metric", "method"], ignore_index=True)
+    if args.baseline:
+        against, per_label = comparisons(args.results_dir, args.inputs, args.baseline)
+        against.round({c: 4 for c in ["score", "baseline_score", *DELTA[:3]]}
+                      | {"delta_p": 6, "p_holm": 6}).to_csv(args.comparisons, index=False)
+        # Each label's comparison on its own row; a label without one stays empty.
+        cells, columns = summary.metric.eq("simGIC per cancer"), [*DELTA, "delta_q"]
+        found = summary.loc[cells, LABEL_KEY].merge(per_label, on=LABEL_KEY, how="left")
+        summary.loc[cells, columns] = found[columns].round(
+            {c: 4 for c in DELTA[:3]} | {"delta_p": 6, "delta_q": 6}).to_numpy()
     args.csv.parent.mkdir(parents=True, exist_ok=True)
     summary.to_csv(args.csv, index=False)
     text = markdown(summary)
+    if args.baseline:
+        text += "\n" + comparisons_markdown(against)
     args.markdown.write_text(text)
     print(text)
 

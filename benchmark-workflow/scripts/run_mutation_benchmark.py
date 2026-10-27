@@ -44,6 +44,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--evidence", type=Path, help="Variant evidence for supplied --labels")
     parser.add_argument("--bounds-only", action="store_true")
+    parser.add_argument(
+        "--baseline", help="Method every other method's pair aggregate is compared with"
+    )
     parser.add_argument("--bootstrap", type=int, help="Override task bootstrap count")
     parser.add_argument("--permutations", type=int, help="Override task permutation count")
     parser.add_argument("--output", type=Path, default=Path("results/mutation"))
@@ -137,6 +140,8 @@ def main(argv: list[str] | None = None) -> None:
     }
     tasks = Tasks.model_validate(tasks.model_dump() | overrides)
     methods = select_methods(args)
+    if args.baseline and args.baseline not in methods:
+        raise ValueError(f"baseline {args.baseline!r} is not among the methods")
 
     inputs = {"tasks": digest(args.tasks), "runner": digest(Path(__file__))}
     if not args.methods and not args.bounds_only:
@@ -151,7 +156,7 @@ def main(argv: list[str] | None = None) -> None:
 
     # 3. Select common cohorts, score all methods and correct testing families.
     cases, scores, aggregate = evaluate(
-        labels, tasks, methods, progress=lambda s: print(s, flush=True)
+        labels, tasks, methods, progress=lambda s: print(s, flush=True), baseline=args.baseline
     )
 
     # 4. Publish tables, report and provenance only after scoring succeeds.

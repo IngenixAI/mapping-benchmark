@@ -7,11 +7,16 @@ n_genes: 2000       # shared gene panel: most variable genes within the training
 latent_dim: 64      # every method embeds into this many dimensions
 random_seed: 42
 
+# Every other method is compared with this one on each pair's score, over the same
+# resamples, with Holm's correction within each axis (results/comparisons.csv). 10,000
+# resamples let a p-value fall below the strictest Holm threshold, 0.05 / 24 on ontology.
+baseline: Corr-hvg
+
 # Axis 1 - ontology. A neighbour is worth the simGIC between its MONDO term and the
 # query's; the score is the mean over the k nearest neighbours (simGIC@k).
 ontology:
   k: 10
-  bootstrap: 1000  # query-cluster resamples for each method's 95% interval
+  bootstrap: 10000  # query-cluster resamples for each method's interval and comparison
   pairs:
     tcga_to_depmap:      {query: tcga,      database: depmap}
     metaprism_to_depmap: {query: metaprism, database: depmap}
@@ -27,7 +32,7 @@ mutation:
 # Axis 3 - donor. A neighbour is worth 1 when it comes from the same patient (precision@k).
 donor:
   k: 1
-  bootstrap: 1000
+  bootstrap: 10000
   pairs:
     aphrodite: {query: aphrodite_human, database: aphrodite_pdx}
 

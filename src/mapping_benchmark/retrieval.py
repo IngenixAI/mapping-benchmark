@@ -17,10 +17,13 @@ A method's 95% interval resamples the query clusters within each label, as the m
 axis does within each cancer. A cluster is a TCGA tumour's tissue source site or any other
 tumour's patient, so the samples that share a batch move together. The database stays fixed,
 every label keeps its weight and its number of clusters, and every method sees the same
-resamples. A label of one cluster has no spread of its own to resample. It joins one
-stratum shared by all such labels, where a label's weight follows its draws, so a patient
-drawn twice counts twice. On the donor axis that is every label, as each is one donor; on
-MetaPRISM, every diagnosis of one patient.
+resamples, so two methods can be compared on them (``compare``). A label of one cluster
+has no spread of its own to resample. It joins one stratum shared by all such labels, where
+a label's weight follows its draws, so a patient drawn twice counts twice. On the donor axis
+that is every label, as each is one donor; on MetaPRISM, every diagnosis of one patient.
+A label of at least ``MIN_TESTED_CLUSTERS`` clusters also keeps its own score per resample,
+so that methods can be compared label by label; with fewer clusters, a cluster bootstrap's
+interval is too narrow to test on.
 """
 
 from collections.abc import Callable
@@ -37,6 +40,7 @@ from mapping_benchmark.ontology import Ontology
 
 LABEL_WEIGHT = 0.5
 MIN_CLUSTERS = 2  # a label of one cluster has no spread of its own to resample
+MIN_TESTED_CLUSTERS = 10  # fewest clusters for a label's own comparison between methods
 Bound = Literal["oracle", "random"]
 Kind = Literal["binary", "simgic"]
 Interval = tuple[float, float]
@@ -99,7 +103,11 @@ class Pool:
 class KResult(BaseModel):
     precision: float
     precision_ci: Interval | None = None
+    # One score per resample, in resample order, for comparisons with other methods.
+    precision_draws: list[float] = []
     per_label_precision: dict[str, float] = {}
+    # Each label of MIN_TESTED_CLUSTERS or more: its score per resample, in resample order.
+    per_label_draws: dict[str, list[float]] = {}
 
 
 class RetrievalResult(BaseModel):
@@ -161,7 +169,7 @@ def precision_at_k(gains: np.ndarray, labels: np.ndarray, clusters: np.ndarray,
     vocab, code, sizes = np.unique(labels, return_inverse=True, return_counts=True)
     per_label = np.array([per_query[labels == label].mean() for label in vocab])
     weights = sizes.astype(float) ** LABEL_WEIGHT
-    ci = None
+    ci, draws, label_draws = None, [], {}
     if n_bootstrap:
         # A label's weight n^0.5 spread over its n queries. Each stratum keeps the weight of
         # its labels; the labels of a single cluster share stratum -1.
@@ -170,16 +178,25 @@ def precision_at_k(gains: np.ndarray, labels: np.ndarray, clusters: np.ndarray,
         strata = np.where(n_clusters[code] >= MIN_CLUSTERS, code, -1)
         _, stratum = np.unique(strata, return_inverse=True)
         share = np.bincount(stratum, query_weight)
+        # A tested label is a stratum of its own, so every resample draws it.
+        tested = n_clusters >= MIN_TESTED_CLUSTERS
 
-        def statistic(w: np.ndarray) -> float:
+        def statistic(w: np.ndarray) -> np.ndarray:
+            own = (np.bincount(code, w * per_query, len(vocab))[tested]
+                   / np.bincount(code, w, len(vocab))[tested])
             w = w * query_weight
-            return share @ (np.bincount(stratum, w * per_query) / np.bincount(stratum, w)) \
+            pooled = share @ (np.bincount(stratum, w * per_query) / np.bincount(stratum, w)) \
                 / share.sum()
+            return np.r_[pooled, own]
 
-        ci = interval(bootstrap(statistic, strata, clusters, n_bootstrap,
-                                np.random.default_rng(seed)))
+        draws = bootstrap(statistic, strata, clusters, n_bootstrap, np.random.default_rng(seed))
+        draws, label_draws = draws[:, 0], dict(zip(vocab[tested].tolist(),
+                                                   np.round(draws[:, 1:].T, 6).tolist()))
+        ci = interval(draws)
     return KResult(precision=float(np.average(per_label, weights=weights)), precision_ci=ci,
-                   per_label_precision=dict(zip(vocab.tolist(), per_label.tolist())))
+                   precision_draws=np.round(draws, 6).tolist(),
+                   per_label_precision=dict(zip(vocab.tolist(), per_label.tolist())),
+                   per_label_draws=label_draws)
 
 
 def resampling_units(patients) -> np.ndarray:
@@ -192,15 +209,16 @@ def resampling_units(patients) -> np.ndarray:
     return patients.str.extract(r"^(TCGA-\w\w)-", expand=False).fillna(patients).to_numpy()
 
 
-def bootstrap(statistic: Callable[[np.ndarray], float], strata: np.ndarray,
+def bootstrap(statistic: Callable[[np.ndarray], float | np.ndarray], strata: np.ndarray,
               clusters: np.ndarray, n: int, rng: np.random.Generator) -> np.ndarray:
-    """``statistic(weights)`` over ``n`` resamples of the clusters within each stratum.
+    """``statistic(weights)``, a number or an array, over ``n`` resamples of the clusters
+    within each stratum.
 
     Each resample draws every stratum's clusters with replacement, as many as it has, and
     gives each row its cluster's multiplicity as a weight, so a cluster's rows move together.
     A cluster belongs to one stratum. Strata and clusters are taken in sorted order, so the
-    same rows and seed give the same resamples in any row order. A resample without a score
-    is NaN.
+    same rows and seed give the same resamples in any row order, and two methods scored on
+    the same rows can be compared resample by resample. A resample without a score is NaN.
     """
     _, s = np.unique(strata, return_inverse=True)
     _, c = np.unique(clusters, return_inverse=True)
@@ -220,6 +238,22 @@ def interval(draws) -> Interval | None:
     draws = np.asarray(draws, float)
     draws = draws[np.isfinite(draws)]
     return tuple(float(v) for v in np.percentile(draws, [2.5, 97.5])) if len(draws) else None
+
+
+def compare(draws, reference, delta: float) -> dict:
+    """A method against a reference scored on the same resamples.
+
+    ``delta`` is the observed difference; the interval and the two-sided p-value come from
+    the difference in each resample, the p-value with the plus-one correction per tail.
+    """
+    d = np.asarray(draws, float) - np.asarray(reference, float)
+    d = d[np.isfinite(d)]
+    if not len(d):
+        return {}
+    low, high = interval(d)
+    tail = min((d <= 0).sum(), (d >= 0).sum())
+    return {"delta": delta, "delta_ci_low": low, "delta_ci_high": high,
+            "delta_p": min(1.0, 2 * (tail + 1) / (len(d) + 1))}
 
 
 def _ideal_gains(rel: np.ndarray, db_counts: np.ndarray, k: int) -> np.ndarray:

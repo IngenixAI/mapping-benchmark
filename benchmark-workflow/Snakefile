@@ -20,6 +20,7 @@ Results:
     results/mutation/                 common labels, scores, counts, report and manifest
     results/donor/{pair}/             one JSON per method and bound
     results/summary.csv, .md, .pdf    every score in one table and one figure
+    results/comparisons.csv           every method against the baseline, per axis and pair
 """
 
 import re
@@ -113,6 +114,7 @@ rule all:
         MUTATION_CANCER_FIGURES,
         "results/summary.csv",
         "results/summary.md",
+        "results/comparisons.csv",
         "results/summary.pdf",
         "results/summary_mutation.pdf",
 
@@ -422,6 +424,7 @@ rule mutation_benchmark:
         uv run python {SCRIPTS}/run_mutation_benchmark.py \
             --expression-samples {input.samples:q} --sources {input.sources:q} \
             --tasks {input.tasks:q} --methods {params.methods:q} \
+            --baseline {config[baseline]:q} \
             --output results/mutation 2>&1 | tee {log:q}
         """
 
@@ -436,6 +439,7 @@ rule summarize:
     output:
         csv="results/summary.csv",
         md="results/summary.md",
+        comparisons="results/comparisons.csv",
     log:
         "logs/summarize.log",
     shell:
@@ -443,6 +447,7 @@ rule summarize:
         uv run python {SCRIPTS}/summarize.py \
             --results-dir results --inputs {input:q} \
             --csv {output.csv} --markdown {output.md} \
+            --baseline {config[baseline]:q} --comparisons {output.comparisons} \
             2>&1 | tee {log}
         """
 

@@ -3,8 +3,8 @@
 Reads the method's ``latents.npy`` and the matching ``latents.csv`` (one row per latent,
 with ``dataset`` and the label column), splits them into the query and database datasets
 and writes ``mapping_benchmark.retrieval.evaluate``'s result as JSON, a method's with its
-cluster-bootstrap 95% interval. A bound reads the labels only, so ``--latents`` is not
-needed.
+cluster-bootstrap 95% interval and every resample's score. A bound reads the labels only,
+so ``--latents`` is not needed.
 """
 
 import argparse
