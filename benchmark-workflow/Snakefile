@@ -321,6 +321,30 @@ rule project_mober:
 
 
 # =====================================================================================
+# Model-free baseline: the gene panel's own expression, nothing fitted.
+# =====================================================================================
+
+rule embed_correlation:
+    """Row-standardised log1p(TPM): Euclidean retrieval ranks like correlation distance."""
+    input:
+        "data/processed/expression_log1p.h5ad",
+    output:
+        latents="results/models/{method}/latents.npy",
+        samples="results/models/{method}/latents.csv",
+    wildcard_constraints:
+        method=methods_of("correlation"),
+    log:
+        "logs/embed_{method}.log",
+    shell:
+        """
+        uv run python {SCRIPTS}/embed_correlation.py \
+            --data-file {input} \
+            --output-latents {output.latents} --output-samples {output.samples} \
+            2>&1 | tee {log}
+        """
+
+
+# =====================================================================================
 # Axes 1 and 3: ontology and donor
 # =====================================================================================
 

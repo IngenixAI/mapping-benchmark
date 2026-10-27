@@ -52,3 +52,8 @@ methods:
     patience: 100
     kl_weight: 1.0e-5
     src_adv_weight: 0.01
+
+  # Not fitted at all: the 2,000-gene panel in log1p(TPM), row-standardised, so retrieval
+  # ranks by correlation (rule embed_correlation). The floor a learned space has to beat.
+  Corr-hvg:
+    type: correlation

@@ -50,7 +50,12 @@ Three baselines are trained from scratch by the workflow, all into 64 dimensions
 - **MOBER**, a variational autoencoder with an adversary that removes the dataset of origin
   from the latent space (vendored from [Novartis/MOBER](baseline-models/MOBER/README.md), MIT)
 
-Celligner and BulkFormer were run with external code that is not part of this repository.
+A fourth, **Corr-hvg**, fits nothing: each sample's log1p(TPM) over the gene panel is
+standardised, so that Euclidean retrieval ranks the database by Pearson correlation. It is
+the floor a learned representation has to beat.
+
+Celligner, BulkFormer and Geneformer were run with external code that is not part of this
+repository.
 
 Two bounds are scored on every axis from the labels alone, with no embedding:
 
@@ -239,8 +244,8 @@ uv run --frozen python benchmark-workflow/scripts/run_mutation_benchmark.py
 
 ```
 results/models/{method}/            latents.npy, latents.csv, and the fitted model
-results/ontology/{pair}/            {PCA,scVI,MOBER,Random,Oracle}.json
-results/donor/aphrodite/            {PCA,scVI,MOBER,Random,Oracle}.json
+results/ontology/{pair}/            {PCA,scVI,MOBER,Corr-hvg,Random,Oracle}.json
+results/donor/aphrodite/            {PCA,scVI,MOBER,Corr-hvg,Random,Oracle}.json
 results/mutation/                   results.json, scores.csv, aggregate.csv (the mean AUROC
                                     per pair), counts.csv, sample_labels.csv,
                                     variant_evidence.csv, manifest.json (input hashes),
