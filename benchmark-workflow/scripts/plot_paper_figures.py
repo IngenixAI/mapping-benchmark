@@ -2,9 +2,9 @@
 
 Part of the main workflow, for whichever methods ``summary.csv`` holds; the methods of the
 paper keep their fixed colours and markers, any other method is grey with its own marker.
-``fig3_aggregated`` puts the three axes in one figure: ontology and donor identity as
-random-to-oracle intervals, and the mutation axis as one mean AUROC per pair (cancers
-weighted by n^0.5). Given ``comparisons.csv``, a method that the paired test could not tell
+``fig3_aggregated`` puts the three axes in one figure, in the paper's order: ontology and
+donor identity as random-to-oracle intervals, and the mutation axis between them as one mean
+AUROC per pair (cancers weighted by n^0.5). Given ``comparisons.csv``, a method that the paired test could not tell
 from the baseline is drawn hollow there, and a dashed line marks the baseline's score.
 ``fig3_expanded_ontology_values`` breaks the ontology score down by query diagnosis, as each
 method's own share of the random-to-oracle interval, and ``fig3_expanded_mutation`` shows
@@ -95,10 +95,10 @@ W = 5.5  # figure width = NeurIPS text width (in)
 CANVAS_H = 12.0  # drawing canvas; only the used height is saved
 LEFT = 0.04  # left margin (in)
 RIGHT = 0.12  # right margin (in)
-LABEL_W = 0.92  # method-label column of panels A/B (in)
-GAP = 0.13  # gap between facets of A/B and of C (in)
+LABEL_W = 0.92  # method-label column of the aggregated panels (in)
+GAP = 0.13  # gap between facets of one aggregated row (in)
 SPLIT = 0.16  # extra gap before the donor facet (in)
-PAD = 0.5  # y padding inside an A/B facet, in rows
+PAD = 0.5  # y padding inside an aggregated facet, in rows
 BASE_GAP = 0.3  # extra gap before the baseline row (and between disease groups), in rows
 COL_GAP = 0.22  # gap between the two mutation columns (in)
 MUT_LABEL_W = 0.84  # analysis-label column of each mutation column (in)
@@ -677,7 +677,7 @@ def main() -> None:
     primary = mut[mut.tier == "primary"]
     print("Eligible primary analyses:", n_analyses(primary))
 
-    # ---- Aggregated: A ontology, B donor identity, C mutation as one AUROC per pair
+    # ---- Aggregated: A ontology, B mutation as one AUROC per pair, C donor identity
     agg = d[(d.axis == "mutation") & (d.metric == "mean AUROC") & (d.k == 10)]
     keys = {"sig": None}
     if args.comparisons:
@@ -699,16 +699,18 @@ def main() -> None:
                      "ontological agreement (simGIC@10)")]) + 0.02
     # Mutation from just below random (0.5), or below the lowest interval if one reaches past it.
     xlim = (min(0.5, agg[agg.method.isin(STYLE)].ci_low.min()) - 0.02, 1.01)
-    second = [(don.set_index("method"), (-0.03, 1.05), [0, 0.5, 1], "APHRODYTHE\nhuman → PDX",
-               None)]
+    second = []
     for p in [p for p in PAIRS if p in set(agg.pair)]:
         s = agg[agg.pair == p].set_index("method")
         second.append((s, xlim, [0.5, 0.75, 1], PAIRS[p].replace(" → ", " →\n"),
                        f"{s.disease.iloc[0].replace('+', ', ')}\n{s.alteration.iloc[0]}"))
+    second.append((don.set_index("method"), (-0.03, 1.05), [0, 0.5, 1],
+                   "APHRODYTHE\nhuman → PDX", None))
     bottom = draw_row(fig, top, order, 0.094, second,
-                      [("B", "Donor identity", 0, 0, "donor match rate\n(precision@1)"),
-                       ("C", "Mutation", 1, len(second) - 1,
-                        "mutation enrichment (mean AUROC@10)")])
+                      [("B", "Mutation", 0, len(second) - 2,
+                        "mutation enrichment (mean AUROC@10)"),
+                       ("C", "Donor identity", len(second) - 1, len(second) - 1,
+                        "donor match rate\n(precision@1)")])
     save(fig, args.output_dir, "fig3_aggregated", bottom)
 
     # ---- Expanded: ontology per query diagnosis; each primary mutation analysis
