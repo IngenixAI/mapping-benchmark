@@ -35,7 +35,7 @@ a{color:var(--accent)}footer{margin-top:12px;font-size:11px;color:var(--muted)}f
 <body>
 <header>
 <h1>Mutation benchmark explorer</h1>
-<p class="muted">Compare mutation retrieval. Hover or focus a point for its score, interval and q-value.</p>
+<p class="muted">Compare mutation retrieval. Hover or focus a point for its score and interval.</p>
 </header>
 <main>
 <div class="controls" aria-label="Plot filters">
@@ -49,9 +49,9 @@ a{color:var(--accent)}footer{margin-top:12px;font-size:11px;color:var(--muted)}f
 <div class="toolbar"><p id="selection" aria-live="polite"></p><button id="export" type="button">Export CSV</button></div>
 <div id="panels" class="grid"></div>
 <footer>
-Whiskers: 95% CI · Filled: q &lt; 0.05 · Dashed: random · Dotted: oracle · Counts: positive / control.
+Whiskers: 95% CI · Dashed: random · Dotted: oracle · Counts: positive / control.
 <details><summary>Statistics and protocol</summary>
-<p>Patient-cluster bootstrap intervals are conditional on the fixed model catalogue. Q-values retain the original full-run testing families and are not recomputed when filtering. Random and oracle references use each analysis's own pool. Missing estimates have no point.</p>
+<p>Patient-cluster bootstrap intervals are conditional on the fixed model catalogue. Random and oracle references use each analysis's own pool. Missing estimates have no point.</p>
 <p><a href="report.html">Protocol</a> · <a href="results.json">Source results</a> · <a href="scores.csv">All scores</a> · <a href="counts.csv">Cohort counts</a></p>
 </details>
 </footer>
@@ -117,13 +117,13 @@ function chart(c,scores) {
     svg.append(svgNode("text",{x:left-8,y:y+4,"text-anchor":"end",fill:"#182b36","font-size":12},method));
     const s=observed.find(s=>s.method===method);
     if(!s || s[metric]===null) {svg.append(svgNode("text",{x:width-right+8,y:y+4,fill:"#8c9da5","font-size":12},"—"));return;}
-    const low=s[metric+"_ci_low"],high=s[metric+"_ci_high"],q=s[metric+"_q"],colour=colours[method];
+    const low=s[metric+"_ci_low"],high=s[metric+"_ci_high"],colour=colours[method];
     if(low!==null && high!==null) {
       svg.append(svgNode("line",{x1:x(low),x2:x(high),y1:y,y2:y,stroke:colour,"stroke-width":2}));
       [low,high].forEach(v=>svg.append(svgNode("line",{x1:x(v),x2:x(v),y1:y-4,y2:y+4,stroke:colour})));
     }
-    const point=svgNode("circle",{cx:x(s[metric]),cy:y,r:4,fill:q!==null&&q<.05 ? colour : "white",stroke:colour,"stroke-width":2,tabindex:0});
-    point.append(svgNode("title",{},`${method}: AUROC ${number(s[metric])}; 95% CI [${number(low)}, ${number(high)}]; p ${number(s[metric+"_p"])}; q ${number(q)}`));
+    const point=svgNode("circle",{cx:x(s[metric]),cy:y,r:4,fill:colour,stroke:colour,"stroke-width":2,tabindex:0});
+    point.append(svgNode("title",{},`${method}: AUROC ${number(s[metric])}; 95% CI [${number(low)}, ${number(high)}]`));
     svg.append(point,svgNode("text",{x:width-right+8,y:y+4,fill:"#182b36","font-size":12},number(s[metric])));
   });
   return svg;
@@ -156,13 +156,13 @@ function render() {
 }
 Object.values(controls).forEach(control=>control.addEventListener("change",render));
 document.getElementById("export").addEventListener("click",()=>{
-  const metric="auroc",fields=["disease","pair","analysis","tier","stratum","method","k","eligible","available_at_k","score","ci_low","ci_high","p_value","q_value","query_positive","query_control","pool_positive","pool_control","reason"];
+  const metric="auroc",fields=["disease","pair","analysis","tier","stratum","method","k","eligible","available_at_k","score","ci_low","ci_high","query_positive","query_control","pool_positive","pool_control","reason"];
   const records=[];
   selectedCases().forEach(c=>{
     const scores=caseScores(c);
     methods.forEach(method=>{
       const s=scores.find(s=>s.method===method),q=c.counts.query,p=c.counts.pool;
-      records.push({disease:c.disease,pair:c.pair,analysis:c.analysis,tier:c.tier,stratum:c.stratum,method,k:Number(controls.depth.value),eligible:c.eligible,available_at_k:c.eligible&&c.available_k.includes(Number(controls.depth.value)),score:s?.[metric],ci_low:s?.[metric+"_ci_low"],ci_high:s?.[metric+"_ci_high"],p_value:s?.[metric+"_p"],q_value:s?.[metric+"_q"],query_positive:q.positive,query_control:q.control,pool_positive:p.positive,pool_control:p.control,reason:c.ineligible_reasons.join("; ")});
+      records.push({disease:c.disease,pair:c.pair,analysis:c.analysis,tier:c.tier,stratum:c.stratum,method,k:Number(controls.depth.value),eligible:c.eligible,available_at_k:c.eligible&&c.available_k.includes(Number(controls.depth.value)),score:s?.[metric],ci_low:s?.[metric+"_ci_low"],ci_high:s?.[metric+"_ci_high"],query_positive:q.positive,query_control:q.control,pool_positive:p.positive,pool_control:p.control,reason:c.ineligible_reasons.join("; ")});
     });
   });
   const quote=v=>'"'+String(v??"").replaceAll('"','""')+'"';

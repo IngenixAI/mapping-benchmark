@@ -101,7 +101,6 @@ class Tasks(BaseModel, extra="forbid"):
     k: list[int] = Field(default=[1, 5, 10], min_length=1)
     primary_k: int = Field(default=10, gt=0)
     bootstrap: int = Field(default=1000, ge=0)
-    permutations: int = Field(default=1000, ge=0)
     seed: int = Field(default=0, ge=0)
     eligibility: Eligibility
     msi: MSI = Field(default_factory=MSI)

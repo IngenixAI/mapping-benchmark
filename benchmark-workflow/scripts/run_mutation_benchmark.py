@@ -48,7 +48,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--baseline", help="Method every other method's pair aggregate is compared with"
     )
     parser.add_argument("--bootstrap", type=int, help="Override task bootstrap count")
-    parser.add_argument("--permutations", type=int, help="Override task permutation count")
     parser.add_argument("--output", type=Path, default=Path("results/mutation"))
     args = parser.parse_args(argv)
     if args.evidence and not args.labels:
@@ -133,11 +132,7 @@ def main(argv: list[str] | None = None) -> None:
 
     # 1. Validate the shared specification and choose methods.
     tasks = selected_tasks(load_tasks(args.tasks), args.diseases, args.pairs)
-    overrides = {
-        key: getattr(args, key)
-        for key in ("bootstrap", "permutations")
-        if getattr(args, key) is not None
-    }
+    overrides = {} if args.bootstrap is None else {"bootstrap": args.bootstrap}
     tasks = Tasks.model_validate(tasks.model_dump() | overrides)
     methods = select_methods(args)
     if args.baseline and args.baseline not in methods:

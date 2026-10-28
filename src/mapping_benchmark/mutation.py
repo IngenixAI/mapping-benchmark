@@ -9,12 +9,10 @@ Mutant and wild-type queries share the disease and the pool, so 0.5 means the ne
 carry no information about the alteration beyond the disease, and a difference in
 prevalence between the two datasets cancels.
 
-Uncertainty comes from two resamplings that leave the embedding alone. Query clusters are
-bootstrapped for the 95% intervals: a TCGA tumour's tissue source site, any other tumour's
-patient, so the samples that share a batch move together. The pool's labels are permuted
-for the p-values. A permutation keeps the neighbour graph, so a pool model that is
-everyone's neighbour is part of the null. Queries and pool are sorted by sample id first,
-so every method sees the same resamples and the same permutations.
+Uncertainty comes from resampling the queries, which leaves the embedding alone. Query
+clusters are bootstrapped for the 95% intervals: a TCGA tumour's tissue source site, any
+other tumour's patient, so the samples that share a batch move together. Queries and pool
+are sorted by sample id first, so every method sees the same resamples.
 
 Two bounds come from the labels alone: ``random`` (AUROC 0.5) and ``oracle`` (every query
 retrieves models of its own status first).
@@ -55,7 +53,6 @@ from mapping_benchmark.retrieval import (
 class KResult(BaseModel):
     auroc: float
     auroc_ci: Interval | None = None
-    auroc_p: float | None = None
     # One AUROC per resample, in resample order, for comparisons with other methods.
     auroc_draws: list[float] = []
 
@@ -228,8 +225,6 @@ SCORE_COLUMNS = [
     "auroc",
     "auroc_ci_low",
     "auroc_ci_high",
-    "auroc_p",
-    "auroc_q",
     "baseline",
     "delta",
     "delta_ci_low",
@@ -257,32 +252,24 @@ def score_record(
         pool_positive=case["counts"]["pool"]["positive"],
         n_query_patients=case["counts"]["query"]["patients"],
         auroc=metric.auroc,
-        auroc_p=metric.auroc_p,
     )
     record["auroc_ci_low"], record["auroc_ci_high"] = metric.auroc_ci or (None, None)
     return record
 
 
 def correct_multiplicity(scores: pd.DataFrame, tasks: Tasks) -> pd.DataFrame:
-    """Separate BH families for each tier, at the declared primary depth.
+    """BH q-values of the differences from the baseline, for each tier at the primary depth.
 
-    Each family spans all scored diseases, pairs and methods in this run. Sensitivity
-    analyses and other depths retain raw p-values; they cannot enter the primary family.
-    The differences from the baseline are corrected within each pair of a family, as the
-    pairs are compared with the baseline one by one, so a pair with clear differences does
-    not lower the bar for another.
+    The differences are corrected within each pair of a tier, as the pairs are compared with
+    the baseline one by one, so a pair with clear differences does not lower the bar for
+    another. Sensitivity analyses and other depths keep raw p-values only.
     """
     scores = scores.copy()
-    scores["auroc_q"] = scores["delta_q"] = np.nan
+    scores["delta_q"] = np.nan
     scores["fdr_family"] = None
     for tier in ("primary", "exploratory"):
         family = scores.tier.eq(tier) & scores.k.eq(tasks.primary_k) & scores.bound.isna()
         scores.loc[family, "fdr_family"] = f"{tier}@{tasks.primary_k}"
-        keep = family & scores.auroc_p.notna()
-        if keep.any():
-            scores.loc[keep, "auroc_q"] = false_discovery_control(
-                scores.loc[keep, "auroc_p"].to_numpy(float), method="bh"
-            )
         for _, cells in scores[family & scores.delta_p.notna()].groupby("pair"):
             scores.loc[cells.index, "delta_q"] = false_discovery_control(
                 cells.delta_p.to_numpy(float), method="bh"
@@ -435,7 +422,6 @@ def score_bounds(
                 np.array(case["query_ids"]),
                 case["available_k"],
                 0,
-                0,
                 tasks.seed,
                 bound=bound,
             ).items():
@@ -485,7 +471,6 @@ def score_method(
             clusters,
             case["available_k"],
             tasks.bootstrap,
-            tasks.permutations,
             tasks.seed,
         )
         for k, metric in metrics.items():
@@ -514,7 +499,7 @@ def auroc(counts: np.ndarray, mutant: np.ndarray, weights: np.ndarray | None = N
 
     ``weights`` give each query a multiplicity, as a bootstrap resample does. NaN when one
     class has no weight. Bincounts rather than sklearn's roc_auc_score, which is ~50x
-    slower and runs ~2,000 times per alteration in the bootstrap and permutations.
+    slower and runs once per bootstrap resample.
     """
     w = np.ones(len(counts)) if weights is None else np.asarray(weights, float)
     levels = int(counts.max()) + 1 if len(counts) else 1
@@ -524,13 +509,6 @@ def auroc(counts: np.ndarray, mutant: np.ndarray, weights: np.ndarray | None = N
         return float("nan")
     below = np.cumsum(neg) - neg
     return float((pos * (below + 0.5 * neg)).sum() / (pos.sum() * neg.sum()))
-
-
-def score(
-    neighbours: np.ndarray, query_mutant: np.ndarray, pool_mutant: np.ndarray, k: int
-) -> float:
-    """AUROC at depth k."""
-    return auroc(pool_mutant[neighbours[:, :k]].sum(axis=1), query_mutant)
 
 
 def pooled_draws(cells: list[tuple], weights: np.ndarray, n: int, seed: int) -> np.ndarray:
@@ -552,23 +530,6 @@ def pooled_draws(cells: list[tuple], weights: np.ndarray, n: int, seed: int) -> 
     return bootstrap(statistic, strata, clusters, n, np.random.default_rng(seed))
 
 
-def permutation_p(
-    neighbours: np.ndarray,
-    query_mutant: np.ndarray,
-    pool_mutant: np.ndarray,
-    k: int,
-    observed: float,
-    n: int,
-    rng: np.random.Generator,
-) -> float:
-    """One-sided p-value of the AUROC against shuffled pool labels."""
-    exceed = sum(
-        score(neighbours, query_mutant, rng.permutation(pool_mutant), k) >= observed - 1e-12
-        for _ in range(n)
-    )
-    return (1 + exceed) / (1 + n)
-
-
 def bound_metrics(
     bound: Bound, query_mutant: np.ndarray, pool_mutant: np.ndarray, k: int
 ) -> KResult:
@@ -587,7 +548,6 @@ def evaluate_alteration(
     clusters: np.ndarray,
     k_values: list[int],
     n_bootstrap: int,
-    n_permutations: int,
     seed: int,
     bound: Bound | None = None,
 ) -> dict[int, KResult]:
@@ -603,21 +563,14 @@ def evaluate_alteration(
             out[k] = bound_metrics(bound, query_mutant, pool_mutant, k)
             continue
         counts = pool_mutant[neighbours[:, :k]].sum(axis=1)
-        auc = auroc(counts, query_mutant)
-        rng = np.random.default_rng(seed)
         # A resample that lacks mutant or wild-type queries has no AUROC and is skipped.
         draws = bootstrap(
             lambda w: auroc(counts, query_mutant, w),
             np.zeros(len(clusters)),
             clusters,
             n_bootstrap,
-            rng,
+            np.random.default_rng(seed),
         )
-        p = (
-            permutation_p(neighbours, query_mutant, pool_mutant, k, auc, n_permutations, rng)
-            if n_permutations
-            else None
-        )
-        out[k] = KResult(auroc=auc, auroc_ci=interval(draws), auroc_p=p,
+        out[k] = KResult(auroc=auroc(counts, query_mutant), auroc_ci=interval(draws),
                          auroc_draws=draws.tolist())
     return out

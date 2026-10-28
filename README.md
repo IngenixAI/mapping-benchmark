@@ -88,35 +88,34 @@ Each pair's primary analyses as one mean AUROC, cancers weighted √n:
 | tcga_to_metaprism | BRCA+LUAD | 0.650 [0.629, 0.675] | 0.702 [0.676, 0.724] | 0.671 [0.646, 0.693] | 0.732 [0.712, 0.758] | 0.500 | 1.000 |
 
 The primary analyses with at least 10 mutant and 10 wild-type samples on both sides, 24 of
-63; `results/summary.md` lists the others with their counts. \* marks a Benjamini–Hochberg
-q < 0.05 against shuffled database labels.
+63; `results/summary.md` lists the others with their counts.
 
 | pair | disease | alteration | Corr-hvg | MOBER | PCA | scVI | Random | Oracle |
 |---|---|---|---|---|---|---|---|---|
 | metaprism_to_depmap | BRCA | PIK3CA_core | 0.591 | 0.630 | 0.638 | 0.604 | 0.500 | 1.000 |
-| metaprism_to_depmap | LUAD | KEAP1 | 0.785* | 0.818* | 0.722* | 0.848* | 0.500 | 1.000 |
-| metaprism_to_depmap | LUAD | KRAS | 0.736* | 0.663* | 0.683* | 0.763* | 0.500 | 1.000 |
-| metaprism_to_depmap | LUAD | SMARCA4 | 0.903* | 0.893* | 0.894* | 0.926* | 0.500 | 1.000 |
-| metaprism_to_depmap | LUAD | STK11 | 0.846* | 0.879* | 0.822* | 0.927* | 0.500 | 1.000 |
+| metaprism_to_depmap | LUAD | KEAP1 | 0.785 | 0.818 | 0.722 | 0.848 | 0.500 | 1.000 |
+| metaprism_to_depmap | LUAD | KRAS | 0.736 | 0.663 | 0.683 | 0.763 | 0.500 | 1.000 |
+| metaprism_to_depmap | LUAD | SMARCA4 | 0.903 | 0.893 | 0.894 | 0.926 | 0.500 | 1.000 |
+| metaprism_to_depmap | LUAD | STK11 | 0.846 | 0.879 | 0.822 | 0.927 | 0.500 | 1.000 |
 | tcga_to_depmap | BRCA | PIK3CA_core | 0.572 | 0.538 | 0.588 | 0.666 | 0.500 | 1.000 |
-| tcga_to_depmap | BRCA | TP53_lof | 0.807 | 0.804* | 0.811* | 0.821* | 0.500 | 1.000 |
-| tcga_to_depmap | COAD | BRAF_V600E | 0.868* | 0.932* | 0.660 | 0.849* | 0.500 | 1.000 |
-| tcga_to_depmap | COAD | KRAS_MSS | 0.672 | 0.633 | 0.447 | 0.708* | 0.500 | 1.000 |
-| tcga_to_depmap | COAD | MSI | 0.911* | 0.946* | 0.870* | 0.955* | 0.500 | 1.000 |
-| tcga_to_depmap | LUAD | KEAP1 | 0.625 | 0.818* | 0.623 | 0.795* | 0.500 | 1.000 |
+| tcga_to_depmap | BRCA | TP53_lof | 0.807 | 0.804 | 0.811 | 0.821 | 0.500 | 1.000 |
+| tcga_to_depmap | COAD | BRAF_V600E | 0.868 | 0.932 | 0.660 | 0.849 | 0.500 | 1.000 |
+| tcga_to_depmap | COAD | KRAS_MSS | 0.672 | 0.633 | 0.447 | 0.708 | 0.500 | 1.000 |
+| tcga_to_depmap | COAD | MSI | 0.911 | 0.946 | 0.870 | 0.955 | 0.500 | 1.000 |
+| tcga_to_depmap | LUAD | KEAP1 | 0.625 | 0.818 | 0.623 | 0.795 | 0.500 | 1.000 |
 | tcga_to_depmap | LUAD | KRAS | 0.504 | 0.580 | 0.483 | 0.578 | 0.500 | 1.000 |
-| tcga_to_depmap | LUAD | SMARCA4 | 0.718 | 0.882* | 0.741* | 0.900* | 0.500 | 1.000 |
-| tcga_to_depmap | LUAD | STK11 | 0.689* | 0.788* | 0.492 | 0.798* | 0.500 | 1.000 |
-| tcga_to_depmap | SKCM | BRAF | 0.643* | 0.628* | 0.571 | 0.670* | 0.500 | 1.000 |
-| tcga_to_depmap | SKCM | NRAS | 0.559 | 0.538 | 0.513 | 0.569* | 0.500 | 1.000 |
-| tcga_to_metaprism | BRCA | PIK3CA_core | 0.615 | 0.675* | 0.691* | 0.726* | 0.500 | 1.000 |
+| tcga_to_depmap | LUAD | SMARCA4 | 0.718 | 0.882 | 0.741 | 0.900 | 0.500 | 1.000 |
+| tcga_to_depmap | LUAD | STK11 | 0.689 | 0.788 | 0.492 | 0.798 | 0.500 | 1.000 |
+| tcga_to_depmap | SKCM | BRAF | 0.643 | 0.628 | 0.571 | 0.670 | 0.500 | 1.000 |
+| tcga_to_depmap | SKCM | NRAS | 0.559 | 0.538 | 0.513 | 0.569 | 0.500 | 1.000 |
+| tcga_to_metaprism | BRCA | PIK3CA_core | 0.615 | 0.675 | 0.691 | 0.726 | 0.500 | 1.000 |
 | tcga_to_metaprism | LUAD | BRAF | 0.595 | 0.623 | 0.526 | 0.568 | 0.500 | 1.000 |
-| tcga_to_metaprism | LUAD | EGFR | 0.848* | 0.875* | 0.806* | 0.861* | 0.500 | 1.000 |
-| tcga_to_metaprism | LUAD | KEAP1 | 0.794* | 0.773* | 0.736* | 0.822* | 0.500 | 1.000 |
-| tcga_to_metaprism | LUAD | KRAS | 0.597 | 0.599* | 0.510 | 0.619* | 0.500 | 1.000 |
-| tcga_to_metaprism | LUAD | SMARCA4 | 0.689 | 0.849* | 0.709 | 0.877* | 0.500 | 1.000 |
+| tcga_to_metaprism | LUAD | EGFR | 0.848 | 0.875 | 0.806 | 0.861 | 0.500 | 1.000 |
+| tcga_to_metaprism | LUAD | KEAP1 | 0.794 | 0.773 | 0.736 | 0.822 | 0.500 | 1.000 |
+| tcga_to_metaprism | LUAD | KRAS | 0.597 | 0.599 | 0.510 | 0.619 | 0.500 | 1.000 |
+| tcga_to_metaprism | LUAD | SMARCA4 | 0.689 | 0.849 | 0.709 | 0.877 | 0.500 | 1.000 |
 | tcga_to_metaprism | LUAD | STK11 | 0.587 | 0.673 | 0.543 | 0.673 | 0.500 | 1.000 |
-| tcga_to_metaprism | LUAD | TP53 | 0.738* | 0.748* | 0.691* | 0.753* | 0.500 | 1.000 |
+| tcga_to_metaprism | LUAD | TP53 | 0.738 | 0.748 | 0.691 | 0.753 | 0.500 | 1.000 |
 
 ### Donor axis (precision@1)
 
@@ -210,12 +209,11 @@ the gene, or a cell line that lost both copies of it, is unknown and left out. F
 query, s is the share of its ten neighbours that are mutant. AUROC@10 is the probability
 that a mutant query's s exceeds a wild-type query's: both share the disease and the
 database, so 0.5 means the neighbours know nothing about the alteration beyond the
-disease. P-values shuffle the database's labels, and Benjamini–Hochberg q-values are
-computed separately for the primary and exploratory analyses. An analysis is scored only
-when it has at least 10 mutant and 10 wild-type samples on each side. Each pair's primary
-analyses are also summarised by one AUROC per method: the mean over each cancer's
-analyses, then over cancers, a cancer with n query patients weighing √n, as on the
-ontology axis; its interval resamples each cancer's queries once for all of its analyses.
+disease. An analysis is scored only when it has at least 10 mutant and 10 wild-type
+samples on each side. Each pair's primary analyses are also summarised by one AUROC per
+method: the mean over each cancer's analyses, then over cancers, a cancer with n query
+patients weighing √n, as on the ontology axis; its interval resamples each cancer's
+queries once for all of its analyses.
 Pairs are kept apart, since they ask different questions (seen in training or not) and
 cover different cancers.
 
@@ -287,7 +285,7 @@ uv run --frozen python benchmark-workflow/scripts/run_mutation_benchmark.py
 ```
 
 `--diseases LUAD`, `--pairs tcga_to_depmap` and `--methods PCA,scVI` narrow it;
-`--bootstrap 25 --permutations 25` makes a quick check.
+`--bootstrap 25` makes a quick check.
 
 ## Outputs
 
@@ -301,7 +299,7 @@ results/mutation/                   results.json, scores.csv, aggregate.csv (the
                                     report.html and explorer.html (offline, interactive)
 results/summary.csv                 every score, one row per axis, pair, disease,
                                     alteration, method, k and metric (ontology also per
-                                    query diagnosis), with intervals, q-values and the
+                                    query diagnosis), with intervals and the
                                     difference from the baseline
 results/comparisons.csv             every method against the baseline per axis and pair:
                                     difference, 95% interval, Holm-corrected p and verdict
@@ -321,7 +319,7 @@ results/figures/                    the paper's results figures, PDF and PNG, 5.
 Each ontology and donor JSON holds the score per k together with its 95% interval,
 per-label scores and the number of query and database samples that were scored. The
 mutation `results.json` holds every disease and alteration with its exact query and
-database samples, counts, eligibility, intervals, p-values and q-values.
+database samples, counts, eligibility, intervals and the differences from the baseline.
 
 ## Adding a method
 

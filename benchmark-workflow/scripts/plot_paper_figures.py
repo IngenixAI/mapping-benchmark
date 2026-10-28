@@ -418,7 +418,7 @@ def baseline_counts(tier_df, order):
             for m in order if m != BASELINE}
 
 
-def legend(fig, top, order, counts=None, sig="q < 0.05", nonsig="q ≥ 0.05", baseline=False):
+def legend(fig, top, order, counts=None, sig=None, nonsig=None, baseline=False):
     """Method key (colour + marker, fixed order, row-major) and an encoding key below it.
 
     ``sig`` and ``nonsig`` label filled and hollow points; without ``sig`` neither is keyed.

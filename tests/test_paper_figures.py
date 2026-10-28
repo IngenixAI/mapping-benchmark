@@ -53,7 +53,6 @@ def summary():
                     tier=tier,
                     k=10,
                     metric="AUROC",
-                    q_value=None if bound else 0.01,
                     delta=None if bound else -0.1,
                     delta_q=None if bound else 0.01,
                 )

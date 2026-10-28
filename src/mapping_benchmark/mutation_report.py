@@ -76,13 +76,10 @@ def report_protocol(tasks: Tasks) -> list[str]:
         "Sequence consequences do not establish biallelic or functional loss.</p>",
         f"<p>Intervals use {tasks.bootstrap} cluster bootstrap draws (a TCGA tumour's "
         "tissue source site, any other tumour's patient), conditional "
-        f"on the fixed model catalogue. One-sided p-values use {tasks.permutations} "
-        "permutations of pool labels and the plus-one correction. BH q-values are "
-        "computed separately for primary and exploratory tiers, across all scored "
-        "diseases, pairs and methods at the primary depth in this run. Sensitivity "
-        "analyses and other depths have raw p-values only. At the primary depth, each "
+        "on the fixed model catalogue. At the primary depth, each "
         "method's difference from the baseline (<code>delta</code>) has its interval and "
-        "two-sided p-value over the same draws, and BH q-values within each tier and pair. "
+        "two-sided p-value over the same draws, and BH q-values within each tier and pair; "
+        "sensitivity analyses have raw p-values only. "
         "Exploratory results support hypothesis generation.</p>",
         "<p>AUROC random reference: 0.5. Oracle values use each case's actual labelled pool. "
         "All methods use identical per-case sample IDs; missing embeddings fail the run.</p>",

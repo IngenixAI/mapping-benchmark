@@ -2,17 +2,16 @@
 
 ``summary.csv`` has one row per (axis, pair, disease, alteration, method, k, metric):
 simGIC on the ontology axis and precision on the donor axis, each with its 95% interval,
-and AUROC on the mutation axis, with its 95% interval, permutation p-value and the common
-evaluator's Benjamini-Hochberg q-value, and at the primary depth its difference from the
-baseline with that difference's interval, p-value and q-value. Corrections remain separate
-for primary/exploratory tiers across the declared run. Each mutation pair's primary analyses
+and AUROC on the mutation axis with its 95% interval and, at the primary depth, its
+difference from the baseline with that difference's interval, p-value and q-value (BH within
+each tier and pair, as the common evaluator wrote them). Each mutation pair's primary analyses
 also get one row per method and k, metric ``mean AUROC``: the mean per cancer, then over
 cancers, with its interval.
 The ontology score per query diagnosis (MONDO id in ``disease``) has metric
 ``simGIC per cancer``, without an interval; a diagnosis with enough clusters to resample
 carries its difference from the baseline, with q-values within each pair.
 ``summary.md`` shows tables per axis and tier, methods as columns and bounds last.
-A star marks q < 0.05; unavailable/ineligible scores are shown as —, with counts and reasons.
+Unavailable/ineligible scores are shown as —, with counts and reasons.
 
 ``comparisons.csv`` compares every method with the baseline on each pair's score: the
 difference, its 95% interval and two-sided p-value over the same resamples, the p-value
@@ -33,7 +32,6 @@ from mapping_benchmark.retrieval import compare
 
 BOUNDS = ["Random", "Oracle"]
 SCORE = {"ontology": "simGIC", "donor": "precision"}
-Q_STAR = 0.05
 ALPHA = 0.05  # familywise, within each axis
 
 
@@ -87,8 +85,7 @@ def mutation_rows(result: dict):
         seen.add((*key, score["method"], score["k"]))
         yield base(cases[key], score["method"], score["k"]) | {
             "score": score["auroc"], "ci_low": score["auroc_ci_low"],
-            "ci_high": score["auroc_ci_high"], "p_value": score.get("auroc_p"),
-            "q_value": score.get("auroc_q"), "fdr_family": score["fdr_family"],
+            "ci_high": score["auroc_ci_high"], "fdr_family": score["fdr_family"],
         } | {key: score.get(key) for key in [*DELTA, "delta_q"]}
     for row in result.get("aggregate", []):
         yield {"axis": "mutation", "pair": row["pair"], "disease": row["diseases"],
@@ -101,8 +98,7 @@ def mutation_rows(result: dict):
         for method in [*result["methods"], *BOUNDS]:
             for k in result["tasks"]["k"]:
                 if (*key, method, k) not in seen:
-                    yield base(case, method, k) | {"score": np.nan, "q_value": np.nan,
-                                                  "p_value": np.nan}
+                    yield base(case, method, k) | {"score": np.nan}
 
 
 DELTA = ["delta", "delta_ci_low", "delta_ci_high", "delta_p"]
@@ -168,7 +164,7 @@ def holm(p: pd.Series) -> pd.Series:
 
 
 COLUMNS = ["axis", "pair", "disease", "alteration", "class", "method", "k", "metric", "score",
-           "ci_low", "ci_high", "p_value", "q_value", *DELTA, "delta_q", "eligible", "n_query",
+           "ci_low", "ci_high", *DELTA, "delta_q", "eligible", "n_query",
            "n_query_mutant",
            "n_database", "n_database_mutant", "tier", "stratum", "primary_depth",
            "fdr_family", "statistics_source", "ineligible_reason"]
@@ -204,14 +200,12 @@ def _mutation(_: str, frame: pd.DataFrame) -> list[str]:
     frame = frame[frame["metric"] == "AUROC"]
     for tier, cells in frame.groupby("tier", sort=False):
         cells = cells.copy()
-        cells["score"] = [_cell(s, q, e) for s, q, e in zip(
-            cells["score"], cells["q_value"].fillna(1.0), cells["eligible"].astype(bool))]
+        cells["score"] = [_cell(s, e) for s, e in zip(cells["score"],
+                                                      cells["eligible"].astype(bool))]
         out.append(f"## Mutation axis: {tier} (AUROC@k)\n")
         out.append(_table(_pivot(cells, ["pair", "disease", "alteration", "stratum", "k"],
                                  aggfunc="first")))
-    out.append("\\* Benjamini-Hochberg q < 0.05 against shuffled pool labels. "
-               "Primary and exploratory families are separate; shared results retain the "
-               "runner's q-values. Unavailable and ineligible scores are shown as —.\n")
+    out.append("Unavailable and ineligible scores are shown as —.\n")
     counts = frame[frame["method"] == "Random"]
     counts = counts[["pair", "disease", "alteration", "class", "tier", "stratum",
                      "n_query_mutant", "n_query", "n_database_mutant", "n_database",
@@ -236,11 +230,10 @@ def comparisons_markdown(frame: pd.DataFrame) -> str:
         f"two-sided p-values Holm-corrected within each axis; verdict at p < {ALPHA}.\n"])
 
 
-def _cell(score: float, q: float, eligible: bool) -> str:
+def _cell(score: float, eligible: bool) -> str:
     if pd.isna(score):
         return "—"
-    text = f"{score:.3f}" + ("*" if eligible and q < Q_STAR else "")
-    return text if eligible else f"({text})"
+    return f"{score:.3f}" if eligible else f"({score:.3f})"
 
 
 def _pivot(frame: pd.DataFrame, index: list[str], aggfunc="mean") -> pd.DataFrame:

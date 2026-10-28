@@ -62,7 +62,7 @@ def plot_bars(fig, panels, methods, style) -> None:
 
 
 def plot_mutation(fig, frame, methods, style, title="Mutation axis") -> None:
-    """AUROC with its bootstrap 95% interval; filled marks have BH q < 0.05.
+    """AUROC with its bootstrap 95% interval.
 
     One row per disease and alteration, most mutant queries first; one column per pair.
     Ineligible cells and unavailable depths are omitted. Missing methods have no point.
@@ -114,14 +114,13 @@ def plot_mutation(fig, frame, methods, style, title="Mutation axis") -> None:
                 errors = ([[max(0, m.score - m.ci_low)], [max(0, m.ci_high - m.score)]]
                           if np.isfinite(m.ci_low) and np.isfinite(m.ci_high) else None)
                 ax.errorbar(m.score, y, xerr=errors,
-                            fmt=marker, color=colour, markersize=5, elinewidth=1.2,
-                            markerfacecolor=colour if m.q_value < 0.05 else "white")
+                            fmt=marker, color=colour, markersize=5, elinewidth=1.2)
     axes[0, 0].set_yticks(range(len(methods)), methods)
     axes[0, 0].set_ylim(len(methods) - 0.5, -0.5)
     axes[0, 0].set_xlim(low, 1)
     caption = (
         f"AUROC@{k} · Worst → best by global mean primary AUROC (equal cell weights). "
-        "Whiskers: 95% CI · Filled: BH q < 0.05 · Dashed: random. "
+        "Whiskers: 95% CI · Dashed: random. "
         "Counts: positive/control. Ineligible analyses omitted."
     )
     fig.supxlabel(textwrap.fill(caption, int(fig.get_figwidth() * 16)), fontsize=8)
