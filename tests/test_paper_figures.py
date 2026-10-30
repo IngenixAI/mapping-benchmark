@@ -29,6 +29,9 @@ def summary():
         for pair in ONTOLOGY_PAIRS:
             row(simgic, axis="ontology", pair=pair, k=10, metric="simGIC")
             for label in ("MONDO:1", "MONDO:2"):
+                # MONDO:2 has too few clusters to test, so the heatmaps leave it out.
+                tested = {} if bound or label == "MONDO:2" else {
+                    "delta": 0.02, "delta_ci_low": -0.01, "delta_ci_high": 0.05, "delta_q": 0.01}
                 row(
                     simgic,
                     axis="ontology",
@@ -36,6 +39,7 @@ def summary():
                     k=10,
                     metric="simGIC per cancer",
                     disease=label,
+                    **tested,
                 )
         row(simgic, axis="donor", pair="aphrodite", k=1, metric="precision")
         for pair in ONTOLOGY_PAIRS[:2]:
@@ -54,6 +58,8 @@ def summary():
                     k=10,
                     metric="AUROC",
                     delta=None if bound else -0.1,
+                    delta_ci_low=None if bound else -0.15,
+                    delta_ci_high=None if bound else -0.05,
                     delta_q=None if bound else 0.01,
                 )
             row(
@@ -102,7 +108,8 @@ def test_every_figure_renders_without_the_paper_methods(tmp_path, monkeypatch):
         ],
     )
     plot.main()
-    names = ["fig3_aggregated", "fig3_expanded_ontology_values", "fig3_expanded_mutation"]
+    names = ["fig3_aggregated", "fig3_expanded_ontology", "fig3_expanded_ontology_values",
+             "fig3_expanded_mutation"]
     assert sorted(p.name for p in out.iterdir()) == sorted(
         f"{n}.{e}" for n in names for e in ("pdf", "png")
     )

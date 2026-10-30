@@ -107,8 +107,8 @@ RESULTS = ([f"results/{axis}/{pair}/{m}.json"
 MUTATION_CANCER_FIGURES = [f"results/mutation/{disease}/summary.{ext}"
                           for disease in TASKS.diseases for ext in ("pdf", "png")]
 FIGURES = [f"results/figures/{name}.{ext}"
-           for name in ("fig3_aggregated", "fig3_expanded_ontology_values",
-                        "fig3_expanded_mutation")
+           for name in ("fig3_aggregated", "fig3_expanded_ontology",
+                        "fig3_expanded_ontology_values", "fig3_expanded_mutation")
            for ext in ("pdf", "png")]
 
 

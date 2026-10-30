@@ -311,9 +311,12 @@ results/mutation/{disease}/summary.pdf, .png   the same, one cancer type per fig
 results/figures/                    the paper's results figures, PDF and PNG, 5.5 in wide:
                                     fig3_aggregated (all three axes, mutation as one AUROC
                                     per pair; hollow points could not be told from the
-                                    baseline), fig3_expanded_ontology_values (simGIC per
-                                    query diagnosis) and fig3_expanded_mutation (each
-                                    primary analysis against the baseline)
+                                    baseline), fig3_expanded_ontology (simGIC per query
+                                    diagnosis as z against the baseline; _values: each
+                                    method's own share; arrows: significantly better) and
+                                    fig3_expanded_mutation (each primary analysis over the
+                                    baseline's interval; only methods significantly better,
+                                    q < 0.05, in colour)
 ```
 
 Each ontology and donor JSON holds the score per k together with its 95% interval,
