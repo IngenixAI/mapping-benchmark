@@ -1,0 +1,76 @@
+# Raw inputs of the mutation axis, pinned to revisions or a content checksum.
+# scripts/run_mutation_benchmark.py derives every label locally. The tables are public on
+# ingenix/mapping_benchmark, cut to the columns and rows read here (see its dataset card);
+# the original MetaPRISM full MAF is a public study file.
+
+# MC3 calls on GRCh37, every variant class. Any row establishes has_variant_calls.
+# This is call-set availability, not proof of sequencing depth or gene callability.
+tcga_mutations:
+  repo: ingenix/mapping_benchmark
+  revision: d24ef23ce2806acd65984139a623c7edf4272797
+  files: [mutations/tcga_mutations.parquet]
+
+# Per 15-character sample: cancer_type_oncotree and msi_score_mantis.
+tcga_clinical:
+  repo: ingenix/mapping_benchmark
+  revision: d24ef23ce2806acd65984139a623c7edf4272797
+  files: [mutations/tcga_clinical.parquet]
+
+# One sequencing profile per model (is_default_entry_for_model). Genes are named by
+# gene_id_ensembl only.
+depmap_mutations:
+  repo: ingenix/mapping_benchmark
+  revision: d24ef23ce2806acd65984139a623c7edf4272797
+  files: [mutations/depmap_mutations.parquet]
+
+# DepMap's counterpart of tcga_clinical: one (model, tag) row per tag. The OncoTree tags of
+# every level give a line's cancer type (the deepest one), the MSI tag its positive MSI
+# screen; the molecular tags (KRASp.G12, PTEN_LoF, ...) are left out.
+depmap_subtypes:
+  repo: ingenix/mapping_benchmark
+  revision: d24ef23ce2806acd65984139a623c7edf4272797
+  files: [mutations/depmap_subtypes.parquet]
+
+# All 117,747 quality-filtered somatic calls from 569 WES tumour/normal pairs (VEP 104,
+# GRCh37), published as Data Table 3. Table S6 / the HF driver catalogue cannot establish
+# negative labels for broad alteration classes. Downloaded bytes are checked and cached.
+# The study's public links expire after a year; the current one is in the study description
+# at https://cbioportal.gustaveroussy.fr/study/summary?id=metaprism_2023.
+metaprism_mutations:
+  url: https://nextcloud.gustaveroussy.fr/public.php/dav/files/krroBB6eYDxdtTH/Data_Table_3.somatic_mutations.maf.gz
+  sha256: 2a62f2f0c2b580e53992840514141415fd1e10528e247852c4078ce32a88c3b2
+  http_user: anonymous
+
+# Per patient: cancer_type_oncotree, and sample_id, the sequenced DNA sample if any.
+metaprism_clinical:
+  repo: ingenix/mapping_benchmark
+  revision: d24ef23ce2806acd65984139a623c7edf4272797
+  files: [mutations/metaprism_clinical.parquet]
+
+# The OncoTree, for the level of each code: a DepMap line's code is its deepest one.
+oncotree:
+  repo: ingenix/mapping_benchmark
+  revision: d24ef23ce2806acd65984139a623c7edf4272797
+  files: [mutations/oncotree.parquet]
+
+# Per model, relative copy number of every gene (omics_features, ~1 for two copies); the
+# genes' Ensembl ids, in the same order, are depmap_features' copy_number_features. It
+# covers 1,095 models, 44 of the 75 LUAD lines. A line below 0.25 has lost the gene and is
+# withheld from its controls (exclude_deletions). TCGA and MetaPRISM have no counterpart.
+depmap_copy_number:
+  repo: ingenix/mapping_benchmark
+  revision: d24ef23ce2806acd65984139a623c7edf4272797
+  files: [mutations/depmap_copy_number.parquet]
+
+# One row: copy_number_features, the Ensembl ids of the 19,937 genes of depmap_copy_number.
+depmap_features:
+  repo: ingenix/mapping_benchmark
+  revision: d24ef23ce2806acd65984139a623c7edf4272797
+  files: [mutations/depmap_features.parquet]
+
+# Cellosaurus, for DepMap lines only: explicit MSI/MSS status (msi_status), and homozygous
+# gene deletions listed in a line's mutations (JSON) that depmap_copy_number misses.
+cell_lines:
+  repo: ingenix/mapping_benchmark
+  revision: d24ef23ce2806acd65984139a623c7edf4272797
+  files: [mutations/cell_lines.parquet]

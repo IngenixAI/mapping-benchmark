@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mutation benchmark explorer</title>
+<style>
+:root{color-scheme:light;--ink:#182b36;--muted:#58707b;--line:#dce4e8;--accent:#246c70}
+*{box-sizing:border-box}body{margin:0;background:#f4f7f8;color:var(--ink);font:14px system-ui,sans-serif}
+header{padding:14px 24px;background:#fff;border-bottom:1px solid var(--line)}
+h1{font-size:22px;letter-spacing:-.025em;margin:0}h2{margin:0;font-size:15px}
+p{line-height:1.45}.muted{color:var(--muted)}header p{font-size:12px;margin:4px 0 0}
+main{padding:14px 24px 24px}.controls{display:flex;flex-wrap:wrap;gap:10px;padding:12px;background:#fff;border:1px solid var(--line);border-radius:8px}
+label{display:flex;flex-direction:column;gap:4px;font-size:11px;font-weight:650}
+select,button{font:inherit;font-size:12px;color:var(--ink);background:#fff;border:1px solid #c5d2d9;border-radius:5px;padding:6px 9px}
+select{min-width:125px}button{cursor:pointer}button:hover{border-color:var(--accent);background:#edf6f5}
+select:focus-visible,button:focus-visible{outline:3px solid #8bd0cf;outline-offset:2px}
+.toolbar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;margin:10px 0;font-size:12px}
+.toolbar p{margin:0}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,360px),1fr));gap:12px;align-items:start}
+.card{background:#fff;border:1px solid var(--line);border-radius:8px;padding:12px;min-width:0}
+.card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+.badge{font-size:9px;font-weight:700;text-transform:uppercase;padding:3px 5px;border-radius:3px;background:#e4f2ef;color:#216753}
+.badge.exploratory{background:#fff1db;color:#885b1a}.badge.sensitivity{background:#ece8f5;color:#635081}
+.counts{font-size:11px;color:var(--muted);margin:7px 0 2px}
+.card svg{display:block;width:100%;height:auto}.foot{font-size:11px;color:var(--muted);margin:3px 0 0}
+details{margin-top:6px;font-size:11px;color:var(--muted)}summary{cursor:pointer}details p{margin:6px 0}
+.ranking{margin:10px 0;font-size:11px}.ranking summary{font-weight:600}
+.ranking p{margin:6px 0}.rank-list{display:flex;flex-wrap:wrap;gap:6px}.rank-item{padding:3px 6px;background:#fff;border:1px solid var(--line);border-radius:4px}
+.empty{padding:20px;text-align:center;background:white;border:1px solid var(--line);border-radius:8px}
+a{color:var(--accent)}footer{margin-top:12px;font-size:11px;color:var(--muted)}footer p{margin:6px 0}
+@media(max-width:600px){header{padding:12px}main{padding:12px}h1{font-size:20px}.controls{gap:8px}label{flex:1}select{width:100%}}
+@media print{.controls,.toolbar button{display:none}body{background:#fff}.card{break-inside:avoid}}
+</style>
+</head>
+<body>
+<header>
+<h1>Mutation benchmark explorer</h1>
+<p class="muted">Compare mutation retrieval. Hover or focus a point for its score and interval.</p>
+</header>
+<main>
+<div class="controls" aria-label="Plot filters">
+<label>Cancer type<select id="disease"></select></label>
+<label>Dataset pair<select id="pair"></select></label>
+<label>Analysis<select id="analysis"></select></label>
+<label>Tier<select id="tier"><option value="all">All tiers</option><option value="primary">Primary</option><option value="exploratory">Exploratory</option><option value="sensitivity">Sensitivity</option></select></label>
+<label>Neighbours (k)<select id="depth"></select></label>
+</div>
+<details class="ranking"><summary>Model order: worst → best · fixed across views</summary><p id="ranking-rule"></p><div id="ranking" class="rank-list"></div></details>
+<div class="toolbar"><p id="selection" aria-live="polite"></p><button id="export" type="button">Export CSV</button></div>
+<div id="panels" class="grid"></div>
+<footer>
+Whiskers: 95% CI · Dashed: random · Dotted: oracle · Counts: positive / control.
+<details><summary>Statistics and protocol</summary>
+<p>Patient-cluster bootstrap intervals are conditional on the fixed model catalogue. Random and oracle references use each analysis's own pool. Missing estimates have no point.</p>
+<p><a href="report.html">Protocol</a> · <a href="results.json">Source results</a> · <a href="scores.csv">All scores</a> · <a href="counts.csv">Cohort counts</a></p>
+</details>
+</footer>
+</main>
+<script id="benchmark-data" type="application/json">__BENCHMARK_DATA__</script>
+<script>
+"use strict";
+const data = JSON.parse(document.getElementById("benchmark-data").textContent);
+const controls = Object.fromEntries(["disease","pair","analysis","tier","depth"].map(id => [id,document.getElementById(id)]));
+const methods = data.ranking.map(r => r.method);
+const palette = ["#3a6fd4","#e08a1e","#1e8e63","#c74b96","#c0392b","#7f7f7f","#8c564b","#17a2b8"];
+const colours = Object.fromEntries([...methods].sort().map((m,i) => [m,palette[i % palette.length]]));
+const names = {tcga:"TCGA",depmap:"DepMap",metaprism:"MetaPRISM"};
+const pairName = p => p.split("_to_").map(s => names[s] || s).join(" → ");
+const number = v => v === null || v === undefined || !Number.isFinite(v) ? "—" : v.toFixed(3);
+const element = (tag,text,className) => {const e=document.createElement(tag);if(text!==undefined)e.textContent=text;if(className)e.className=className;return e;};
+function options(select,values,allLabel) {
+  const previous=select.value;select.replaceChildren();
+  if(allLabel)select.add(new Option(allLabel,"all"));
+  values.forEach(([value,label]) => select.add(new Option(label,value)));
+  if([...select.options].some(o => o.value===previous))select.value=previous;
+}
+options(controls.disease,data.diseases.map(d => [d,d]),"All cancers");
+controls.disease.value=data.diseases[0] || "all";
+options(controls.pair,data.pairs.map(p => [p,pairName(p)]),"All pairs");
+controls.pair.value=data.pairs[0] || "all";
+options(controls.depth,data.k.map(k => [String(k),String(k)]));
+controls.depth.value=String(data.primary_k);
+document.getElementById("ranking-rule").textContent=data.ranking_rule + " This is a descriptive order, not evidence of significant differences between methods.";
+data.ranking.forEach((r,i) => document.getElementById("ranking").append(element("span",`${i+1}. ${r.method} · ${r.mean_auroc===null ? "unranked" : number(r.mean_auroc)+" ("+r.cells+" cells)"}`,"rank-item")));
+function matchingCases() {
+  return data.cases.filter(c => c.eligible && c.available_k.includes(Number(controls.depth.value))
+    && (controls.disease.value==="all" || c.disease===controls.disease.value)
+    && (controls.pair.value==="all" || c.pair===controls.pair.value)
+    && (controls.tier.value==="all" || c.tier===controls.tier.value));
+}
+function selectedCases() {
+  return matchingCases().filter(c => controls.analysis.value==="all" || c.analysis===controls.analysis.value);
+}
+function caseScores(c) {
+  return data.scores.filter(s => s.disease===c.disease && s.pair===c.pair && s.analysis===c.analysis && s.k===Number(controls.depth.value));
+}
+function svgNode(tag,attributes,text) {
+  const node=document.createElementNS("http://www.w3.org/2000/svg",tag);
+  Object.entries(attributes).forEach(([key,value])=>node.setAttribute(key,String(value)));
+  if(text!==undefined)node.textContent=text;return node;
+}
+function chart(c,scores) {
+  const metric="auroc",width=480,left=90,right=50,top=18,row=22,height=top+row*methods.length+28;
+  const svg=svgNode("svg",{viewBox:`0 0 ${width} ${height}`,role:"img","aria-label":`${c.disease} ${c.analysis} AUROC by method, worst to best`});
+  const observed=scores.filter(s=>methods.includes(s.method));
+  const random=scores.find(s=>s.bound==="random"),oracle=scores.find(s=>s.bound==="oracle");
+  const x=v=>left+v*(width-left-right);
+  for(let i=0;i<=4;i++) {
+    const value=i/4;
+    svg.append(svgNode("line",{x1:x(value),x2:x(value),y1:top-12,y2:height-24,stroke:"#e8edf0"}));
+    svg.append(svgNode("text",{x:x(value),y:height-7,"text-anchor":"middle",fill:"#58707b","font-size":12},value.toFixed(2)));
+  }
+  if(random && Number.isFinite(random[metric]))svg.append(svgNode("line",{x1:x(random[metric]),x2:x(random[metric]),y1:top-12,y2:height-24,stroke:"#80939c","stroke-dasharray":"5 4"}));
+  if(oracle && Number.isFinite(oracle[metric]))svg.append(svgNode("line",{x1:x(oracle[metric]),x2:x(oracle[metric]),y1:top-12,y2:height-24,stroke:"#246c70","stroke-dasharray":"2 4"}));
+  methods.forEach((method,i) => {
+    const y=top+i*row;
+    svg.append(svgNode("text",{x:left-8,y:y+4,"text-anchor":"end",fill:"#182b36","font-size":12},method));
+    const s=observed.find(s=>s.method===method);
+    if(!s || s[metric]===null) {svg.append(svgNode("text",{x:width-right+8,y:y+4,fill:"#8c9da5","font-size":12},"—"));return;}
+    const low=s[metric+"_ci_low"],high=s[metric+"_ci_high"],colour=colours[method];
+    if(low!==null && high!==null) {
+      svg.append(svgNode("line",{x1:x(low),x2:x(high),y1:y,y2:y,stroke:colour,"stroke-width":2}));
+      [low,high].forEach(v=>svg.append(svgNode("line",{x1:x(v),x2:x(v),y1:y-4,y2:y+4,stroke:colour})));
+    }
+    const point=svgNode("circle",{cx:x(s[metric]),cy:y,r:4,fill:colour,stroke:colour,"stroke-width":2,tabindex:0});
+    point.append(svgNode("title",{},`${method}: AUROC ${number(s[metric])}; 95% CI [${number(low)}, ${number(high)}]`));
+    svg.append(point,svgNode("text",{x:width-right+8,y:y+4,fill:"#182b36","font-size":12},number(s[metric])));
+  });
+  return svg;
+}
+function render() {
+  const pairs=data.pairs.filter(p=>data.cases.some(c=>c.pair===p && c.eligible
+    && c.available_k.includes(Number(controls.depth.value))
+    && (controls.disease.value==="all" || c.disease===controls.disease.value)
+    && (controls.tier.value==="all" || c.tier===controls.tier.value)));
+  options(controls.pair,pairs.map(p=>[p,pairName(p)]),"All pairs");
+  options(controls.analysis,[...new Set(matchingCases().map(c=>c.analysis))].map(a=>[a,a]),"All analyses");
+  const cases=selectedCases(),panels=document.getElementById("panels"),k=Number(controls.depth.value);
+  panels.replaceChildren();
+  document.getElementById("selection").textContent=`${cases.length} analyses · AUROC@${k}`;
+  if(!cases.length)panels.append(element("div","No eligible analyses at this depth. Try another cancer, tier or k.","empty"));
+  cases.forEach(c=>{
+    const card=element("article",undefined,"card");card.dataset.disease=c.disease;card.dataset.pair=c.pair;card.dataset.analysis=c.analysis;
+    const head=element("div",undefined,"card-head"),heading=element("div");
+    heading.append(element("h2",`${c.disease} · ${c.analysis}`),element("div",`${pairName(c.pair)}${c.stratum==="all" ? "" : " · "+c.stratum}`,"foot"));
+    head.append(heading,element("span",c.tier,`badge ${c.tier}`));card.append(head);
+    const q=c.counts.query,p=c.counts.pool;
+    card.append(element("p",`Patients ${q.positive}/${q.control} · Models ${p.positive}/${p.control}`,"counts"));
+    const scores=caseScores(c);
+    card.append(chart(c,scores));
+    const biomarker=data.biomarkers[c.biomarker],details=element("details");details.append(element("summary","Cohort & biomarker details"));
+    details.append(element("p",`Unknown: ${q.unknown} patients, ${p.unknown} models. Counts above are positive / control.`));
+    details.append(element("p",biomarker ? `${biomarker.gene} · ${biomarker.classes.join(" + ")} · controls: ${biomarker.controls.replaceAll("_"," ")}. ${biomarker.note} Known homozygous deletions ${biomarker.exclude_deletions ? "withheld from controls" : "not excluded"}.` : "MSI status from the declared source evidence rules."));
+    card.append(details);panels.append(card);
+  });
+}
+Object.values(controls).forEach(control=>control.addEventListener("change",render));
+document.getElementById("export").addEventListener("click",()=>{
+  const metric="auroc",fields=["disease","pair","analysis","tier","stratum","method","k","eligible","available_at_k","score","ci_low","ci_high","query_positive","query_control","pool_positive","pool_control","reason"];
+  const records=[];
+  selectedCases().forEach(c=>{
+    const scores=caseScores(c);
+    methods.forEach(method=>{
+      const s=scores.find(s=>s.method===method),q=c.counts.query,p=c.counts.pool;
+      records.push({disease:c.disease,pair:c.pair,analysis:c.analysis,tier:c.tier,stratum:c.stratum,method,k:Number(controls.depth.value),eligible:c.eligible,available_at_k:c.eligible&&c.available_k.includes(Number(controls.depth.value)),score:s?.[metric],ci_low:s?.[metric+"_ci_low"],ci_high:s?.[metric+"_ci_high"],query_positive:q.positive,query_control:q.control,pool_positive:p.positive,pool_control:p.control,reason:c.ineligible_reasons.join("; ")});
+    });
+  });
+  const quote=v=>'"'+String(v??"").replaceAll('"','""')+'"';
+  const csv=[fields.join(","),...records.map(r=>fields.map(f=>quote(r[f])).join(","))].join("\r\n");
+  const url=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"}));
+  const a=document.createElement("a");a.href=url;a.download=`mutation_${controls.disease.value}_${metric}_k${controls.depth.value}.csv`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+});
+render();
+</script>
+</body>
+</html>

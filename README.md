@@ -12,7 +12,7 @@ neighbours:
 | Axis | Question | Score | Bounds |
 |---|---|---|---|
 | **Ontology** | Do the neighbours have a similar disease? | simGIC@10 between the query's and each neighbour's MONDO term, a graded graph-based match | random floor, oracle |
-| **Mutation** | Do the neighbours carry similar driver-gene alterations? | Jaccard@10 between the query's and each neighbour's set of mutated genes, within a breast, lung or pan-cancer cohort | random floor, oracle |
+| **Mutation** | Do a mutant tumour's neighbours carry its alteration more often than a wild-type tumour's? | AUROC@10, per disease and alteration, of the share of mutant neighbours between mutant and wild-type queries | random 0.5, oracle 1 |
 | **Donor** | Is the neighbour the patient's own xenograft? | precision@1, exact match on the donor | random floor, oracle |
 
 Every score is placed between what a random ranking scores and what the best ranking the
@@ -50,54 +50,126 @@ Three baselines are trained from scratch by the workflow, all into 64 dimensions
 - **MOBER**, a variational autoencoder with an adversary that removes the dataset of origin
   from the latent space (vendored from [Novartis/MOBER](baseline-models/MOBER/README.md), MIT)
 
-Celligner and BulkFormer were run with external code that is not part of this repository.
+A fourth, **Corr-hvg**, fits nothing: each sample's log1p(TPM) over the gene panel is
+standardised, so that Euclidean retrieval ranks the database by Pearson correlation. It is
+the floor a learned representation has to beat.
+
+Celligner, BulkFormer and Geneformer were run with external code that is not part of this
+repository.
 
 Two bounds are scored on every axis from the labels alone, with no embedding:
 
 - **Random**, the expected score of a uniformly random ranking of the database.
 - **Oracle**, the best score any ranking of the database could reach. On the mutation axis
-  the oracle is the best ranking that respects disease similarity, that is, what a perfect
-  ontology match could achieve at best.
+  it hands every query the database samples of its own mutation status first.
 
 ## Results
 
-The three baselines as the workflow last ran them, with both bounds on every row.
+The three trained methods and the correlation baseline as the workflow last ran them, with
+both bounds on every row. Intervals are 95% cluster-bootstrap intervals.
 
 ### Ontology axis (simGIC@10)
 
-| pair | k | MOBER | PCA | scVI | Random | Oracle |
+| pair | Corr-hvg | MOBER | PCA | scVI | Random | Oracle |
 |---|---|---|---|---|---|---|
-| metaprism_to_depmap | 10 | 0.248 | 0.246 | 0.239 | 0.104 | 0.556 |
-| tcga_to_depmap | 10 | 0.406 | 0.380 | 0.397 | 0.104 | 0.669 |
-| tcga_to_metaprism | 10 | 0.369 | 0.373 | 0.377 | 0.126 | 0.634 |
-| tcga_to_pdxe | 10 | 0.326 | 0.315 | 0.329 | 0.130 | 0.513 |
+| metaprism_to_depmap | 0.267 [0.257, 0.278] | 0.248 [0.238, 0.258] | 0.246 [0.236, 0.257] | 0.239 [0.230, 0.249] | 0.104 | 0.556 |
+| tcga_to_depmap | 0.421 [0.419, 0.425] | 0.406 [0.402, 0.409] | 0.380 [0.377, 0.384] | 0.397 [0.394, 0.400] | 0.104 | 0.669 |
+| tcga_to_metaprism | 0.389 [0.387, 0.392] | 0.369 [0.367, 0.372] | 0.373 [0.371, 0.376] | 0.377 [0.374, 0.380] | 0.126 | 0.634 |
+| tcga_to_pdxe | 0.336 [0.334, 0.339] | 0.326 [0.323, 0.328] | 0.315 [0.312, 0.318] | 0.329 [0.326, 0.332] | 0.130 | 0.513 |
 
-### Mutation axis (Jaccard@10)
+### Mutation axis (AUROC@10)
 
-| pair | cohort | k | MOBER | PCA | scVI | Random | Oracle |
+Each pair's primary analyses as one mean AUROC, cancers weighted √n:
+
+| pair | cancers | Corr-hvg | MOBER | PCA | scVI | Random | Oracle |
 |---|---|---|---|---|---|---|---|
-| metaprism_to_depmap | breast | 10 | 0.089 | 0.086 | 0.100 | 0.079 | 0.227 |
-| metaprism_to_depmap | lung | 10 | 0.112 | 0.122 | 0.120 | 0.092 | 0.347 |
-| metaprism_to_depmap | pan | 10 | 0.104 | 0.093 | 0.097 | 0.061 | 0.269 |
-| tcga_to_depmap | breast | 10 | 0.110 | 0.095 | 0.118 | 0.090 | 0.265 |
-| tcga_to_depmap | lung | 10 | 0.111 | 0.124 | 0.114 | 0.096 | 0.337 |
-| tcga_to_depmap | pan | 10 | 0.101 | 0.092 | 0.100 | 0.057 | 0.255 |
-| tcga_to_metaprism | breast | 10 | 0.064 | 0.050 | 0.066 | 0.045 | 0.102 |
-| tcga_to_metaprism | lung | 10 | 0.066 | 0.059 | 0.065 | 0.042 | 0.223 |
-| tcga_to_metaprism | pan | 10 | 0.062 | 0.054 | 0.062 | 0.029 | 0.143 |
+| metaprism_to_depmap | BRCA+LUAD | 0.733 [0.661, 0.801] | 0.745 [0.676, 0.811] | 0.728 [0.656, 0.796] | 0.769 [0.705, 0.831] | 0.500 | 1.000 |
+| tcga_to_depmap | BRCA+COAD+LUAD+SKCM | 0.682 [0.661, 0.705] | 0.709 [0.690, 0.731] | 0.626 [0.607, 0.647] | 0.741 [0.720, 0.760] | 0.500 | 1.000 |
+| tcga_to_metaprism | BRCA+LUAD | 0.650 [0.629, 0.675] | 0.702 [0.676, 0.724] | 0.671 [0.646, 0.693] | 0.732 [0.712, 0.758] | 0.500 | 1.000 |
+
+The primary analyses with at least 10 mutant and 10 wild-type samples on both sides, 24 of
+63; `results/summary.md` lists the others with their counts.
+
+| pair | disease | alteration | Corr-hvg | MOBER | PCA | scVI | Random | Oracle |
+|---|---|---|---|---|---|---|---|---|
+| metaprism_to_depmap | BRCA | PIK3CA_core | 0.591 | 0.630 | 0.638 | 0.604 | 0.500 | 1.000 |
+| metaprism_to_depmap | LUAD | KEAP1 | 0.785 | 0.818 | 0.722 | 0.848 | 0.500 | 1.000 |
+| metaprism_to_depmap | LUAD | KRAS | 0.736 | 0.663 | 0.683 | 0.763 | 0.500 | 1.000 |
+| metaprism_to_depmap | LUAD | SMARCA4 | 0.903 | 0.893 | 0.894 | 0.926 | 0.500 | 1.000 |
+| metaprism_to_depmap | LUAD | STK11 | 0.846 | 0.879 | 0.822 | 0.927 | 0.500 | 1.000 |
+| tcga_to_depmap | BRCA | PIK3CA_core | 0.572 | 0.538 | 0.588 | 0.666 | 0.500 | 1.000 |
+| tcga_to_depmap | BRCA | TP53_lof | 0.807 | 0.804 | 0.811 | 0.821 | 0.500 | 1.000 |
+| tcga_to_depmap | COAD | BRAF_V600E | 0.868 | 0.932 | 0.660 | 0.849 | 0.500 | 1.000 |
+| tcga_to_depmap | COAD | KRAS_MSS | 0.672 | 0.633 | 0.447 | 0.708 | 0.500 | 1.000 |
+| tcga_to_depmap | COAD | MSI | 0.911 | 0.946 | 0.870 | 0.955 | 0.500 | 1.000 |
+| tcga_to_depmap | LUAD | KEAP1 | 0.625 | 0.818 | 0.623 | 0.795 | 0.500 | 1.000 |
+| tcga_to_depmap | LUAD | KRAS | 0.504 | 0.580 | 0.483 | 0.578 | 0.500 | 1.000 |
+| tcga_to_depmap | LUAD | SMARCA4 | 0.718 | 0.882 | 0.741 | 0.900 | 0.500 | 1.000 |
+| tcga_to_depmap | LUAD | STK11 | 0.689 | 0.788 | 0.492 | 0.798 | 0.500 | 1.000 |
+| tcga_to_depmap | SKCM | BRAF | 0.643 | 0.628 | 0.571 | 0.670 | 0.500 | 1.000 |
+| tcga_to_depmap | SKCM | NRAS | 0.559 | 0.538 | 0.513 | 0.569 | 0.500 | 1.000 |
+| tcga_to_metaprism | BRCA | PIK3CA_core | 0.615 | 0.675 | 0.691 | 0.726 | 0.500 | 1.000 |
+| tcga_to_metaprism | LUAD | BRAF | 0.595 | 0.623 | 0.526 | 0.568 | 0.500 | 1.000 |
+| tcga_to_metaprism | LUAD | EGFR | 0.848 | 0.875 | 0.806 | 0.861 | 0.500 | 1.000 |
+| tcga_to_metaprism | LUAD | KEAP1 | 0.794 | 0.773 | 0.736 | 0.822 | 0.500 | 1.000 |
+| tcga_to_metaprism | LUAD | KRAS | 0.597 | 0.599 | 0.510 | 0.619 | 0.500 | 1.000 |
+| tcga_to_metaprism | LUAD | SMARCA4 | 0.689 | 0.849 | 0.709 | 0.877 | 0.500 | 1.000 |
+| tcga_to_metaprism | LUAD | STK11 | 0.587 | 0.673 | 0.543 | 0.673 | 0.500 | 1.000 |
+| tcga_to_metaprism | LUAD | TP53 | 0.738 | 0.748 | 0.691 | 0.753 | 0.500 | 1.000 |
 
 ### Donor axis (precision@1)
 
-| pair | k | MOBER | PCA | scVI | Random | Oracle |
+| pair | Corr-hvg | MOBER | PCA | scVI | Random | Oracle |
 |---|---|---|---|---|---|---|
-| aphrodite | 1 | 0.319 | 0.128 | 0.447 | 0.021 | 1.000 |
+| aphrodite | 0.596 [0.447, 0.745] | 0.319 [0.192, 0.468] | 0.128 [0.043, 0.234] | 0.447 [0.298, 0.596] | 0.021 | 1.000 |
+
+### Against the correlation baseline
+
+Each method's score minus the baseline's on the same resamples; p-values Holm-corrected
+within each axis (`results/comparisons.csv`).
+
+| axis | pair | method | difference [95% interval] | Holm p | verdict |
+|---|---|---|---|---|---|
+| donor | aphrodite | MOBER | -0.277 [-0.404, -0.149] | 0.0006 | worse |
+| donor | aphrodite | PCA | -0.468 [-0.617, -0.319] | 0.0006 | worse |
+| donor | aphrodite | scVI | -0.149 [-0.255, -0.064] | 0.0022 | worse |
+| mutation | metaprism_to_depmap | MOBER | +0.012 [-0.049, +0.071] | 1.0000 | undecided |
+| mutation | metaprism_to_depmap | PCA | -0.006 [-0.060, +0.046] | 1.0000 | undecided |
+| mutation | metaprism_to_depmap | scVI | +0.035 [-0.033, +0.102] | 0.9119 | undecided |
+| mutation | tcga_to_depmap | MOBER | +0.027 [+0.011, +0.043] | 0.0072 | better |
+| mutation | tcga_to_depmap | PCA | -0.056 [-0.073, -0.038] | 0.0018 | worse |
+| mutation | tcga_to_depmap | scVI | +0.059 [+0.041, +0.075] | 0.0018 | better |
+| mutation | tcga_to_metaprism | MOBER | +0.052 [+0.018, +0.080] | 0.0120 | better |
+| mutation | tcga_to_metaprism | PCA | +0.021 [-0.010, +0.045] | 0.7775 | undecided |
+| mutation | tcga_to_metaprism | scVI | +0.082 [+0.059, +0.105] | 0.0018 | better |
+| ontology | metaprism_to_depmap | MOBER | -0.019 [-0.025, -0.013] | 0.0024 | worse |
+| ontology | metaprism_to_depmap | PCA | -0.021 [-0.025, -0.016] | 0.0024 | worse |
+| ontology | metaprism_to_depmap | scVI | -0.028 [-0.035, -0.022] | 0.0024 | worse |
+| ontology | tcga_to_depmap | MOBER | -0.016 [-0.019, -0.013] | 0.0024 | worse |
+| ontology | tcga_to_depmap | PCA | -0.042 [-0.044, -0.039] | 0.0024 | worse |
+| ontology | tcga_to_depmap | scVI | -0.025 [-0.028, -0.021] | 0.0024 | worse |
+| ontology | tcga_to_metaprism | MOBER | -0.020 [-0.021, -0.018] | 0.0024 | worse |
+| ontology | tcga_to_metaprism | PCA | -0.016 [-0.017, -0.014] | 0.0024 | worse |
+| ontology | tcga_to_metaprism | scVI | -0.012 [-0.014, -0.010] | 0.0024 | worse |
+| ontology | tcga_to_pdxe | MOBER | -0.010 [-0.012, -0.009] | 0.0024 | worse |
+| ontology | tcga_to_pdxe | PCA | -0.021 [-0.023, -0.019] | 0.0024 | worse |
+| ontology | tcga_to_pdxe | scVI | -0.007 [-0.010, -0.005] | 0.0024 | worse |
 
 Read as the share of the random-to-oracle interval covered: on the ontology axis the three
-methods sit at 48–53% of it wherever TCGA is the query, and at 30–32% on MetaPRISM →
-DepMap, the one mapping whose queries were never seen in training. On the mutation axis
-they cover 3–37%, closer to the floor than to the oracle everywhere, and PCA is the weakest
-method on all three breast cohorts. On the donor axis scVI covers 43%, MOBER 30% and PCA 11%. The
-numbers above are the workflow's own `results/summary.md`; rerunning it rewrites them.
+trained methods sit at 48–53% of it wherever TCGA is the query, and at 30–32% on MetaPRISM
+→ DepMap, the one mapping whose queries were never seen in training. The correlation
+baseline, which fits nothing, covers more on all four pairs (36–56%), and every trained
+method is below it on each. On the mutation axis microsatellite instability in colon
+cancer is the clearest signal (0.87–0.96), while the neighbours of a KRAS-mutant lung
+tumour from TCGA are barely more often KRAS-mutant cell lines than those of a wild-type
+one (0.48–0.58). scVI scores highest in 17 of the 24 analyses and MOBER in 6; PCA is the
+lowest in 16. Averaged per pair, scVI and MOBER beat the baseline from TCGA, by 0.03–0.08,
+and PCA falls below it from TCGA into DepMap; from MetaPRISM into DepMap no method can be
+told apart from it. On the donor axis the baseline covers 59% of the interval, scVI 43%,
+MOBER 30% and PCA 11%, all three below it. These tests cover which tumours were sampled;
+the database and the training seed are held fixed. The numbers above come from the
+workflow's own `results/summary.csv` and `results/comparisons.csv`; rerunning it rewrites
+them.
 
 ## How a score is computed
 
@@ -123,25 +195,67 @@ with the same weights the benchmark scores with.
 
 ![The simGIC explorer with lung adenocarcinoma and small cell lung carcinoma selected: the two cones drawn over the MONDO graph, and a panel giving the score, the shared and unshared terms, and the heaviest shared ancestors](docs/images/simgic-explorer.png)
 
-*Mutation.* Each sample's mutations are a binary vector over the genes every mutation
-source was assayed on, in practice MetaPRISM's targeted panel of cancer driver genes. A
-neighbour is worth the Jaccard overlap between its set of mutated genes and the query's;
-Jaccard@10 is the mean over the ten nearest neighbours, averaged over queries.
+*Mutation.* Scored per disease and alteration, as declared in
+[mutation_tasks.yaml](benchmark-workflow/resources/mutation_tasks.yaml): lung
+adenocarcinoma (LUAD), colon adenocarcinoma (COAD), cutaneous melanoma (SKCM) and breast
+carcinoma (BRCA). The queries are the tumours of the disease's OncoTree codes, the
+database the samples of the same codes, each labelled mutant, wild type or unknown for one
+alteration: selected protein changes for an oncogene (`hotspot`), truncating, essential
+splice-site, start-loss and stop-loss mutations (`lof`), or any protein-changing mutation
+(`nonsilent`), plus microsatellite instability for COAD. The same rules label every
+source, from the full somatic calls. Wild type means no protein-changing call in the gene,
+or none at all where the task says so; a sample with a different protein-changing call in
+the gene, or a cell line that lost both copies of it, is unknown and left out. For each
+query, s is the share of its ten neighbours that are mutant. AUROC@10 is the probability
+that a mutant query's s exceeds a wild-type query's: both share the disease and the
+database, so 0.5 means the neighbours know nothing about the alteration beyond the
+disease. An analysis is scored only when it has at least 10 mutant and 10 wild-type
+samples on each side. Each pair's primary analyses are also summarised by one AUROC per
+method: the mean over each cancer's analyses, then over cancers, a cancer with n query
+patients weighing √n, as on the ontology axis; its interval resamples each cancer's
+queries once for all of its analyses.
+Pairs are kept apart, since they ask different questions (seen in training or not) and
+cover different cancers.
 
 *Donor.* Each patient in the Aphrodite study has a tumour sample and one or two
 xenografts grown from it. A neighbour is worth 1 when it is the query's own xenograft.
 
+On every axis a method's 95% interval comes from 10,000 resamples of the queries, with the
+database fixed. Each cancer type (a MONDO label, or a mutation analysis's disease) is
+resampled within itself and keeps its weight, so the interval reflects which tumours were
+drawn, not how many of each type. A TCGA tumour is resampled with its tissue source site,
+whose tumours share a processing batch, and any other tumour with its patient. A label of
+a single such cluster has no spread of its own; all such labels share one stratum, where a
+label's weight follows its draws, so a patient drawn twice counts twice — on the donor
+axis, where each label is one donor, as two donors. Every method sees the same resamples.
+
+*Comparing methods.* Every method is compared with the correlation baseline (`baseline` in
+the config) on each pair's score: in every resample both are scored on the same tumours, and
+the difference gives a 95% interval and a two-sided p-value. The p-values are
+Holm-corrected within each axis, and a corrected p < 0.05 makes a method better or worse
+than the baseline on that pair; otherwise it is undecided (`results/comparisons.csv`). Each
+mutation analysis is compared the same way at the primary depth, as a breakdown of the
+pair's verdict: those p-values get Benjamini–Hochberg q-values within each pair and tier
+(`delta_q` in `results/summary.csv`). So is each query diagnosis on the ontology axis that
+has at least ten resampling clusters, BH within each pair. These tests cover which tumours
+were sampled; the database and the training seed are held fixed.
+
 ## Data
 
-Every input comes from one HuggingFace dataset,
+Expression and MONDO inputs come from one HuggingFace dataset,
 [`ingenix/mapping_benchmark`](https://huggingface.co/datasets/ingenix/mapping_benchmark):
 TPM expression for TCGA, DepMap, MetaPRISM, PDXE and the Aphrodite study (GSE317901) on a
-common 19,260-gene panel, every sample's MONDO term, the MONDO graph, and the somatic
-mutations as three long tables (which genes are mutated in which sample, which samples
-have calls, which genes each dataset was assayed on). Which files are read, and which
-samples are left out, is in
+common 19,260-gene panel, every sample's MONDO term and the MONDO graph. Which files are
+read, and which samples are left out, is in
 [resources/datasets.yaml](benchmark-workflow/resources/datasets.yaml). The primary sources
 carry their own terms of use; see the dataset card.
+
+The mutation axis reads the somatic calls and clinical annotations of TCGA, DepMap and
+MetaPRISM, and MetaPRISM's
+[full somatic mutation table](https://github.com/gustaveroussy/MetaPRISM_Public/blob/master/data/README.md)
+(Data Table 3). The calls and annotations are on the same HuggingFace dataset, cut to what
+the benchmark reads. Every source is pinned to a revision or a SHA-256 in
+[resources/mutation_sources.yaml](benchmark-workflow/resources/mutation_sources.yaml).
 
 ## Running the benchmark
 
@@ -159,22 +273,56 @@ cell can be requested by its output file, for example
 `results/ontology/tcga_to_depmap/PCA.json`, which downloads the data, selects genes, fits
 PCA and scores it without touching the other methods. Everything the workflow decides is
 in [config.yaml](benchmark-workflow/config.yaml): the training datasets, the gene panel
-size, the k of each axis, the mappings, the cohorts and the methods' hyperparameters.
+size, the k of each axis, the mappings and the methods' hyperparameters. The mutation
+axis's diseases, alterations, pairs and scoring settings are in
+[mutation_tasks.yaml](benchmark-workflow/resources/mutation_tasks.yaml); adding a cancer
+type is an entry there.
+
+The mutation axis alone, on embeddings already in `results/models/`:
+
+```bash
+uv run --frozen python benchmark-workflow/scripts/run_mutation_benchmark.py
+```
+
+`--diseases LUAD`, `--pairs tcga_to_depmap` and `--methods PCA,scVI` narrow it;
+`--bootstrap 25` makes a quick check.
 
 ## Outputs
 
 ```
-results/models/{method}/          latents.npy, latents.csv, and the fitted model
-results/ontology/{pair}/          {PCA,scVI,MOBER,Random,Oracle}.json
-results/mutation/{pair}/{cohort}/ {PCA,scVI,MOBER,Random,Oracle}.json
-results/donor/aphrodite/          {PCA,scVI,MOBER,Random,Oracle}.json
-results/summary.csv               every score, one row per axis, pair, cohort, method and k
-results/summary.md                one table per axis, methods as columns, bounds last
-results/summary.pdf, .png         the three axes as random-to-oracle bars with method marks
+results/models/{method}/            latents.npy, latents.csv, and the fitted model
+results/ontology/{pair}/            {PCA,scVI,MOBER,Corr-hvg,Random,Oracle}.json
+results/donor/aphrodite/            {PCA,scVI,MOBER,Corr-hvg,Random,Oracle}.json
+results/mutation/                   results.json, scores.csv, aggregate.csv (the mean AUROC
+                                    per pair), counts.csv, sample_labels.csv,
+                                    variant_evidence.csv, manifest.json (input hashes),
+                                    report.html and explorer.html (offline, interactive)
+results/summary.csv                 every score, one row per axis, pair, disease,
+                                    alteration, method, k and metric (ontology also per
+                                    query diagnosis), with intervals and the
+                                    difference from the baseline
+results/comparisons.csv             every method against the baseline per axis and pair:
+                                    difference, 95% interval, Holm-corrected p and verdict
+results/summary.md                  one table per axis, methods as columns, bounds last
+results/summary.pdf, .png           ontology, the mean AUROC per mutation pair and donor
+                                    as random-to-oracle bars, with 95% intervals
+results/summary_mutation.pdf, .png  AUROC with 95% intervals per alteration and pair
+results/mutation/{disease}/summary.pdf, .png   the same, one cancer type per figure
+results/figures/                    the paper's results figures, PDF and PNG, 5.5 in wide:
+                                    fig3_aggregated (all three axes, mutation as one AUROC
+                                    per pair; hollow points could not be told from the
+                                    baseline), fig3_expanded_ontology (simGIC per query
+                                    diagnosis as z against the baseline; _values: each
+                                    method's own share; arrows: significantly better) and
+                                    fig3_expanded_mutation (each primary analysis over the
+                                    baseline's interval; only methods significantly better,
+                                    q < 0.05, in colour)
 ```
 
-Each JSON holds the score per k together with per-label scores and the number of query and
-database samples that were scored.
+Each ontology and donor JSON holds the score per k together with its 95% interval,
+per-label scores and the number of query and database samples that were scored. The
+mutation `results.json` holds every disease and alteration with its exact query and
+database samples, counts, eligibility, intervals and the differences from the baseline.
 
 ## Adding a method
 
@@ -189,7 +337,9 @@ summary rules pick the method up from there.
 
 ```
 benchmark-workflow/     Snakefile, config.yaml, resources/, scripts/ (one script per rule)
-src/mapping_benchmark/  datasets (inputs), ontology (MONDO, simGIC), retrieval (axes 1, 3), mutation (axis 2)
+src/mapping_benchmark/  datasets (inputs), ontology (MONDO, simGIC), retrieval (axes 1, 3),
+                        mutation_tasks (task schema), alterations and mutation_labels
+                        (labels), mutation (scores), mutation_report (outputs)
 baseline-models/        SimplePCA, scVI, MOBER, each with its own environment
 docs/                   the interactive simGIC explorer, and the README figures
 tests/                  pytest suite: uv run --frozen pytest
